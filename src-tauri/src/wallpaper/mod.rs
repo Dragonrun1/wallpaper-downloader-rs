@@ -8,6 +8,7 @@ pub mod windows;
 use std::path::Path;
 use walkdir::WalkDir;
 use anyhow::Result;
+use rand::RngExt;
 
 // ─── Desktop Environment Detection ──────────────────────────────────────────
 
@@ -176,11 +177,7 @@ pub fn pick_random_wallpaper(folders: &[&Path]) -> Result<std::path::PathBuf> {
     if candidates.is_empty() {
         anyhow::bail!("No wallpapers found in configured folders");
     }
-    let idx = (std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_millis() as usize)
-        % candidates.len();
+    let idx = rand::rng().random_range(0..candidates.len());
     Ok(candidates[idx].clone())
 }
 

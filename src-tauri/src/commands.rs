@@ -1,6 +1,6 @@
-use std::sync::Mutex;
 use std::path::PathBuf;
-use tauri::{AppHandle, Emitter, Manager, State};
+use std::sync::Mutex;
+use tauri::{AppHandle, State};
 use tauri_plugin_clipboard_manager::ClipboardExt;
 use crate::prefs::Prefs;
 use crate::harvester::AppState;
@@ -8,19 +8,23 @@ use crate::harvester::AppState;
 // ─── Prefs ──────────────────────────────────────────────────────────────────
 
 #[tauri::command]
-pub fn get_prefs(prefs: State<Prefs>) -> Prefs {
-    (*prefs).clone()
+pub fn get_prefs(prefs: State<Mutex<Prefs>>) -> Prefs {
+    prefs.lock().unwrap().clone()
 }
 
 #[tauri::command]
-pub fn save_prefs(new_prefs: Prefs) -> Result<(), String> {
-    new_prefs.save().map_err(|e| e.to_string())
+pub fn save_prefs(prefs: State<Mutex<Prefs>>, new_prefs: Prefs) -> Result<(), String> {
+    new_prefs.save().map_err(|e| e.to_string())?;
+    *prefs.lock().unwrap() = new_prefs;
+    Ok(())
 }
 
 #[tauri::command]
-pub fn reset_settings(prefs: State<Prefs>) -> Result<(), String> {
+pub fn reset_settings(prefs: State<Mutex<Prefs>>) -> Result<(), String> {
     let default = Prefs::default();
-    default.save().map_err(|e| e.to_string())
+    default.save().map_err(|e| e.to_string())?;
+    *prefs.lock().unwrap() = default;
+    Ok(())
 }
 
 // ─── Harvester ──────────────────────────────────────────────────────────────
@@ -37,6 +41,55 @@ pub fn resume_harvesting(state: State<AppState>, app: AppHandle) {
     crate::notify::notify(&app, "Harvesting resumed");
 }
 
+// ─── Changer ────────────────────────────────────────────────────────────────
+
+#[tauri::command]
+pub fn add_changer_folder(prefs: State<Mutex<Prefs>>, new_path: String) -> Result<(), String> {
+    let path = PathBuf::from(&new_path);
+    if !path.exists() {
+        return Err(format!("Directory doesn't exist: {}", new_path));
+    }
+    let mut prefs = prefs.lock().unwrap();
+    if !prefs.changer.folders.contains(&path) {
+        prefs.changer.folders.push(path);
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn remove_changer_folder(prefs: State<Mutex<Prefs>>, path: String) -> Result<(), String> {
+    let target = PathBuf::from(&path);
+    prefs.lock().unwrap().changer.folders.retain(|p| p != &target);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn set_random_wallpaper(prefs: State<Mutex<Prefs>>) -> Result<(), String> {
+    let folders: Vec<PathBuf> = prefs.lock().unwrap().changer.folders.clone();
+    if folders.is_empty() {
+        return Err("No changer folders configured".into());
+    }
+    let paths: Vec<&std::path::Path> = folders.iter().map(|p| p.as_path()).collect();
+    let next = crate::wallpaper::pick_random_wallpaper(&paths).map_err(|e| e.to_string())?;
+    crate::wallpaper::set_wallpaper(&next).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn set_next_wallpaper(prefs: State<Mutex<Prefs>>) -> Result<(), String> {
+    let prefs = prefs.lock().unwrap();
+    let folders = prefs.changer.folders.clone();
+    let last = prefs.changer.last_wallpaper.clone();
+    let reverse = matches!(prefs.changer.mode, crate::prefs::ChangerMode::Reverse);
+    drop(prefs);
+
+    if folders.is_empty() {
+        return Err("No changer folders configured".into());
+    }
+    let next = crate::changer::pick_sequential(&folders, &last, reverse)
+        .map_err(|e| e.to_string())?;
+    crate::wallpaper::set_wallpaper(&next).map_err(|e| e.to_string())
+}
+
 // ─── Wallpaper ──────────────────────────────────────────────────────────────
 
 #[tauri::command]
@@ -49,34 +102,11 @@ pub fn can_change_wallpaper() -> bool {
     crate::wallpaper::DesktopEnvironment::detect().is_changeable()
 }
 
-#[tauri::command]
-pub fn set_random_wallpaper(prefs: State<Prefs>) -> Result<(), String> {
-    let folders: Vec<&std::path::Path> = prefs.changer.folders.iter().map(|p| p.as_path()).collect();
-    if folders.is_empty() {
-        return Err("No changer folders configured".into());
-    }
-    let next = crate::wallpaper::pick_random_wallpaper(&folders).map_err(|e| e.to_string())?;
-    crate::wallpaper::set_wallpaper(&next).map_err(|e| e.to_string())
-}
+// ─── Disk / Downloads ───────────────────────────────────────────────────────
 
 #[tauri::command]
-pub fn set_next_wallpaper(prefs: State<Prefs>) -> Result<(), String> {
-    let folders: Vec<&std::path::Path> = prefs.changer.folders.iter().map(|p| p.as_path()).collect();
-    if folders.is_empty() {
-        return Err("No changer folders configured".into());
-    }
-
-    let reverse = matches!(prefs.changer.mode, crate::prefs::ChangerMode::Reverse);
-    let next = crate::changer::pick_sequential(&prefs.changer.folders, &prefs.changer.last_wallpaper, reverse)
-        .map_err(|e| e.to_string())?;
-    crate::wallpaper::set_wallpaper(&next).map_err(|e| e.to_string())
-}
-
-// ─── Disk ───────────────────────────────────────────────────────────────────
-
-#[tauri::command]
-pub fn get_disk_usage(prefs: State<Prefs>) -> Result<u8, String> {
-    let path = &prefs.downloads.path;
+pub fn get_disk_usage(prefs: State<Mutex<Prefs>>) -> Result<u8, String> {
+    let path = prefs.lock().unwrap().downloads.path.clone();
     if !path.exists() {
         return Ok(0);
     }
@@ -98,17 +128,67 @@ pub fn get_disk_usage(prefs: State<Prefs>) -> Result<u8, String> {
     Ok(0)
 }
 
+#[tauri::command]
+pub fn change_downloads_dir(prefs: State<Mutex<Prefs>>, new_path: String, delete_old: bool) -> Result<(), String> {
+    let new_path_buf = PathBuf::from(&new_path);
+    if !new_path_buf.exists() {
+        return Err(format!("Directory doesn't exist: {}", new_path));
+    }
+
+    let mut prefs = prefs.lock().unwrap();
+    let old_path = prefs.downloads.path.clone();
+    if old_path != new_path_buf {
+        for entry in std::fs::read_dir(&old_path).map_err(|e| e.to_string())? {
+            let entry = entry.map_err(|e| e.to_string())?;
+            let dest = new_path_buf.join(entry.file_name());
+            std::fs::rename(entry.path(), &dest).map_err(|e| e.to_string())?;
+        }
+        if delete_old {
+            let _ = std::fs::remove_dir(&old_path);
+        }
+        prefs.downloads.path = new_path_buf;
+    }
+    prefs.save().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn open_downloads_dir(prefs: State<Mutex<Prefs>>) -> Result<(), String> {
+    let path = prefs.lock().unwrap().downloads.path.clone();
+    #[cfg(target_os = "linux")]
+    {
+        std::process::Command::new("xdg-open")
+            .arg(&path)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg(&path)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("explorer")
+            .arg(&path)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
 // ─── Wallpapers (list) ──────────────────────────────────────────────────────
 
 #[tauri::command]
-pub fn get_recent_wallpapers(prefs: State<Prefs>, count: usize) -> Result<Vec<String>, String> {
-    let dir = &prefs.downloads.path;
+pub fn get_recent_wallpapers(prefs: State<Mutex<Prefs>>, count: usize) -> Result<Vec<String>, String> {
+    let dir = prefs.lock().unwrap().downloads.path.clone();
     if !dir.exists() {
         return Ok(vec![]);
     }
 
-    let mut entries: Vec<(std::path::PathBuf, u64)> = Vec::new();
-    for entry in walkdir::WalkDir::new(dir)
+    let mut entries: Vec<(PathBuf, u64)> = Vec::new();
+    for entry in walkdir::WalkDir::new(&dir)
         .into_iter()
         .filter_map(|e| e.ok())
         .filter(|e| e.file_type().is_file())
@@ -131,14 +211,14 @@ pub fn get_recent_wallpapers(prefs: State<Prefs>, count: usize) -> Result<Vec<St
 }
 
 #[tauri::command]
-pub fn get_all_wallpapers(prefs: State<Prefs>, offset: usize, limit: usize) -> Result<Vec<String>, String> {
-    let dir = &prefs.downloads.path;
+pub fn get_all_wallpapers(prefs: State<Mutex<Prefs>>, offset: usize, limit: usize) -> Result<Vec<String>, String> {
+    let dir = prefs.lock().unwrap().downloads.path.clone();
     if !dir.exists() {
         return Ok(vec![]);
     }
 
     let mut paths: Vec<String> = Vec::new();
-    for entry in walkdir::WalkDir::new(dir)
+    for entry in walkdir::WalkDir::new(&dir)
         .into_iter()
         .filter_map(|e| e.ok())
         .filter(|e| e.file_type().is_file())
@@ -154,12 +234,14 @@ pub fn get_all_wallpapers(prefs: State<Prefs>, offset: usize, limit: usize) -> R
 }
 
 #[tauri::command]
-pub fn get_favorite_wallpapers(prefs: State<Prefs>, offset: usize, limit: usize) -> Result<Vec<String>, String> {
+pub fn get_favorite_wallpapers(prefs: State<Mutex<Prefs>>, offset: usize, limit: usize) -> Result<Vec<String>, String> {
+    let prefs = prefs.lock().unwrap();
     filter_wallpapers(&prefs, true, offset, limit)
 }
 
 #[tauri::command]
-pub fn get_no_favorite_wallpapers(prefs: State<Prefs>, offset: usize, limit: usize) -> Result<Vec<String>, String> {
+pub fn get_no_favorite_wallpapers(prefs: State<Mutex<Prefs>>, offset: usize, limit: usize) -> Result<Vec<String>, String> {
+    let prefs = prefs.lock().unwrap();
     filter_wallpapers(&prefs, false, offset, limit)
 }
 
@@ -189,14 +271,14 @@ fn filter_wallpapers(prefs: &Prefs, favorite: bool, offset: usize, limit: usize)
 }
 
 #[tauri::command]
-pub fn count_wallpapers(prefs: State<Prefs>, favorite: bool) -> Result<usize, String> {
-    let dir = &prefs.downloads.path;
+pub fn count_wallpapers(prefs: State<Mutex<Prefs>>, favorite: bool) -> Result<usize, String> {
+    let dir = prefs.lock().unwrap().downloads.path.clone();
     if !dir.exists() {
         return Ok(0);
     }
 
     let mut count = 0;
-    for entry in walkdir::WalkDir::new(dir)
+    for entry in walkdir::WalkDir::new(&dir)
         .into_iter()
         .filter_map(|e| e.ok())
         .filter(|e| e.file_type().is_file())
@@ -213,14 +295,14 @@ pub fn count_wallpapers(prefs: State<Prefs>, favorite: bool) -> Result<usize, St
 }
 
 #[tauri::command]
-pub fn count_all_wallpapers(prefs: State<Prefs>) -> Result<usize, String> {
-    let dir = &prefs.downloads.path;
+pub fn count_all_wallpapers(prefs: State<Mutex<Prefs>>) -> Result<usize, String> {
+    let dir = prefs.lock().unwrap().downloads.path.clone();
     if !dir.exists() {
         return Ok(0);
     }
 
     let mut count = 0;
-    for entry in walkdir::WalkDir::new(dir)
+    for entry in walkdir::WalkDir::new(&dir)
         .into_iter()
         .filter_map(|e| e.ok())
         .filter(|e| e.file_type().is_file())
@@ -318,16 +400,19 @@ pub fn set_favorite(paths: Vec<String>, favorite: bool) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn move_favorite_wallpapers(prefs: State<Prefs>, app: AppHandle) -> Result<(), String> {
-    let dest = &prefs.downloads.move_favorite_folder;
+pub fn move_favorite_wallpapers(prefs: State<Mutex<Prefs>>, app: AppHandle) -> Result<(), String> {
+    let dest = prefs.lock().unwrap().downloads.move_favorite_folder.clone();
     if dest.as_os_str().is_empty() {
         return Err("No move destination configured".into());
     }
 
-    std::fs::create_dir_all(dest).map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(&dest).map_err(|e| e.to_string())?;
 
-    let src = &prefs.downloads.path;
-    for entry in std::fs::read_dir(src).map_err(|e| e.to_string())? {
+    let prefs = prefs.lock().unwrap();
+    let src = prefs.downloads.path.clone();
+    drop(prefs);
+
+    for entry in std::fs::read_dir(&src).map_err(|e| e.to_string())? {
         let entry = entry.map_err(|e| e.to_string())?;
         let name = entry.file_name().to_string_lossy().to_string();
         if name.starts_with("wd_fav_") {
@@ -341,7 +426,7 @@ pub fn move_favorite_wallpapers(prefs: State<Prefs>, app: AppHandle) -> Result<(
     Ok(())
 }
 
-// ─── Folder operations ──────────────────────────────────────────────────────
+// ─── Folders ────────────────────────────────────────────────────────────────
 
 #[tauri::command]
 pub async fn pick_folder(app: AppHandle) -> Result<Option<String>, String> {
@@ -356,53 +441,12 @@ pub async fn pick_folder(app: AppHandle) -> Result<Option<String>, String> {
 }
 
 #[tauri::command]
-pub fn change_downloads_dir(prefs: State<Prefs>, new_path: String, delete_old: bool) -> Result<(), String> {
-    let new_path_buf = PathBuf::from(&new_path);
-    if !new_path_buf.exists() {
+pub fn change_move_dir(prefs: State<Mutex<Prefs>>, new_path: String) -> Result<(), String> {
+    let p = PathBuf::from(&new_path);
+    if !p.exists() {
         return Err(format!("Directory doesn't exist: {}", new_path));
     }
-
-    let old_path = prefs.downloads.path.clone();
-    if old_path != new_path_buf {
-        // Move existing wallpapers
-        for entry in std::fs::read_dir(&old_path).map_err(|e| e.to_string())? {
-            let entry = entry.map_err(|e| e.to_string())?;
-            let dest = new_path_buf.join(entry.file_name());
-            std::fs::rename(entry.path(), &dest).map_err(|e| e.to_string())?;
-        }
-        if delete_old {
-            let _ = std::fs::remove_dir(&old_path);
-        }
-    }
-
-    Ok(())
-}
-
-#[tauri::command]
-pub fn add_changer_folder(prefs: State<Mutex<Prefs>>, new_path: String) -> Result<(), String> {
-    let path = PathBuf::from(&new_path);
-    if !path.exists() {
-        return Err(format!("Directory doesn't exist: {}", new_path));
-    }
-    let mut prefs = prefs.lock().unwrap();
-    if !prefs.changer.folders.contains(&path) {
-        prefs.changer.folders.push(path);
-    }
-    Ok(())
-}
-
-#[tauri::command]
-pub fn remove_changer_folder(prefs: State<Mutex<Prefs>>, path: String) -> Result<(), String> {
-    let target = PathBuf::from(&path);
-    prefs.lock().unwrap().changer.folders.retain(|p| p != &target);
-    Ok(())
-}
-
-#[tauri::command]
-pub fn change_move_dir(_prefs: State<Prefs>, new_path: String) -> Result<(), String> {
-    if !PathBuf::from(&new_path).exists() {
-        return Err(format!("Directory doesn't exist: {}", new_path));
-    }
+    prefs.lock().unwrap().downloads.move_favorite_folder = p;
     Ok(())
 }
 
@@ -436,36 +480,8 @@ pub fn set_autostart(enable: bool) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn open_downloads_dir(prefs: State<Prefs>) -> Result<(), String> {
-    let path = &prefs.downloads.path;
-    #[cfg(target_os = "linux")]
-    {
-        std::process::Command::new("xdg-open")
-            .arg(path)
-            .spawn()
-            .map_err(|e| e.to_string())?;
-    }
-    #[cfg(target_os = "macos")]
-    {
-        std::process::Command::new("open")
-            .arg(path)
-            .spawn()
-            .map_err(|e| e.to_string())?;
-    }
-    #[cfg(target_os = "windows")]
-    {
-        std::process::Command::new("explorer")
-            .arg(path)
-            .spawn()
-            .map_err(|e| e.to_string())?;
-    }
-    Ok(())
-}
-
-#[tauri::command]
 pub fn copy_to_clipboard(app: AppHandle, text: String) -> Result<(), String> {
-    app.clipboard().write_text(&text).map_err(|e| e.to_string())?;
-    Ok(())
+    app.clipboard().write_text(text).map_err(|e| e.to_string())
 }
 
 // ─── Secondary Windows ──────────────────────────────────────────────────────
@@ -474,7 +490,7 @@ pub fn copy_to_clipboard(app: AppHandle, text: String) -> Result<(), String> {
 pub fn open_manager(app: AppHandle) -> tauri::Result<()> {
     let window = tauri::WebviewWindowBuilder::new(
         &app, "manager",
-        tauri::WebviewUrl::App("manager.html".into())
+        tauri::WebviewUrl::App("index.html".into())
     ).inner_size(774.0, 621.0).center().build()?;
     window.set_focus()?;
     Ok(())
@@ -484,7 +500,7 @@ pub fn open_manager(app: AppHandle) -> tauri::Result<()> {
 pub fn open_choose(app: AppHandle) -> tauri::Result<()> {
     let window = tauri::WebviewWindowBuilder::new(
         &app, "choose",
-        tauri::WebviewUrl::App("choose.html".into())
+        tauri::WebviewUrl::App("index.html".into())
     ).inner_size(774.0, 546.0).center().build()?;
     window.set_focus()?;
     Ok(())
@@ -495,7 +511,7 @@ pub fn open_preview(app: AppHandle, path: String) -> tauri::Result<()> {
     let encoded = urlencoding::encode(&path);
     let window = tauri::WebviewWindowBuilder::new(
         &app, "preview",
-        tauri::WebviewUrl::App(format!("preview?path={}", encoded).into())
+        tauri::WebviewUrl::App(format!("index.html?path={}", encoded).into())
     ).inner_size(1024.0, 768.0).center().build()?;
     window.set_focus()?;
     Ok(())
