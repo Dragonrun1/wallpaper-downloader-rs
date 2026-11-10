@@ -18,12 +18,56 @@ pub struct Prefs {
 pub struct Providers {
     pub wallhaven: Wallhaven,
     pub unsplash: Unsplash,
-    pub bing: bool,
+    pub bing: Bing,
     pub deviantart: DeviantArt,
     pub social_wallpapering: SocialWallpapering,
-    pub wallpaper_fusion: bool,
+    pub wallpaper_fusion: WallpaperFusion,
     pub dual_monitor: DualMonitor,
     pub download_policy: DownloadPolicy,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct WallpaperFusion {
+    pub enabled: bool,
+    pub sort: WfSort,
+    pub monitors: u8,       // 0=all, 1, 2, 3, 4
+    pub min_rating: u8,     // 0=any, 1-5 stars (maps to RateAll)
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum WfSort {
+    Relevance,   // 0
+    Popular,     // 1
+    Newest,      // 4
+}
+
+impl WfSort {
+    pub fn as_param(&self) -> &str {
+        match self {
+            Self::Relevance => "0",
+            Self::Popular   => "1",
+            Self::Newest    => "4",
+        }
+    }
+}
+
+impl Default for WallpaperFusion {
+    fn default() -> Self {
+        Self { enabled: false, sort: WfSort::Relevance, monitors: 0, min_rating: 0 }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct Bing {
+    pub enabled: bool,
+    pub mkt: String,
+}
+
+impl Default for Bing {
+    fn default() -> Self {
+        Self { enabled: false, mkt: "en-US".into() }
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -269,10 +313,10 @@ impl Default for Prefs {
             providers: Providers {
                 wallhaven: Wallhaven { enabled: true, search_type: SearchType::default(), keywords: String::new() },
                 unsplash: Unsplash { enabled: false, search_type: SearchType::default(), api_key: String::new() },
-                bing: false,
+                bing: Bing::default(),
                 deviantart: DeviantArt { enabled: false, search_type: DeviantArtSearchType::default() },
                 social_wallpapering: SocialWallpapering { enabled: false, ignore_keywords: false },
-                wallpaper_fusion: false,
+                wallpaper_fusion: WallpaperFusion::default(),
                 dual_monitor: DualMonitor { enabled: false, search_type: SearchType::default() },
                 download_policy: DownloadPolicy::default(),
             },
