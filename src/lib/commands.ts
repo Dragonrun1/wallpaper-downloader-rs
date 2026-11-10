@@ -35,6 +35,7 @@ export const getNoFavoriteWallpapers = (offset: number, limit: number) => invoke
 export const countWallpapers = (favorite: boolean) => invoke<number>("count_wallpapers", {favorite});
 export const countAllWallpapers = () => invoke<number>("count_all_wallpapers");
 export const getWallpaperInfo = (path: string) => invoke<WallpaperInfo>("get_wallpaper_info", {path});
+export const listImages = (dir: string, offset: number, limit: number) => invoke<string[]>("list_images", { dir, offset, limit });
 
 // Wallpaper actions
 export const deleteWallpapers = (paths: string[]) => invoke("delete_wallpapers", {paths});

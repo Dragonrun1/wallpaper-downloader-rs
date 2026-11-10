@@ -4,6 +4,7 @@ use tauri::{AppHandle, State};
 use tauri_plugin_clipboard_manager::ClipboardExt;
 use crate::prefs::Prefs;
 use crate::harvester::AppState;
+use walkdir::WalkDir;
 
 // ─── Prefs ──────────────────────────────────────────────────────────────────
 
@@ -100,6 +101,23 @@ pub fn set_wallpaper(path: String) -> Result<(), String> {
 #[tauri::command]
 pub fn can_change_wallpaper() -> bool {
     crate::wallpaper::DesktopEnvironment::detect().is_changeable()
+}
+
+#[tauri::command]
+pub fn list_images(dir: String, offset: usize, limit: usize) -> Result<Vec<String>, String> {
+    let mut paths: Vec<String> = Vec::new();
+    for entry in WalkDir::new(&dir)
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_type().is_file())
+    {
+        let ext = entry.path().extension().and_then(|e| e.to_str()).unwrap_or("");
+        if matches!(ext, "jpg" | "jpeg" | "png" | "webp" | "bmp") {
+            paths.push(entry.path().to_string_lossy().to_string());
+        }
+    }
+    paths.sort();
+    Ok(paths.into_iter().skip(offset).take(limit).collect())
 }
 
 // ─── Disk / Downloads ───────────────────────────────────────────────────────
