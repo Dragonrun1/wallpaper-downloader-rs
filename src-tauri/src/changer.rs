@@ -62,7 +62,7 @@ async fn change_wallpaper(app: &AppHandle) -> Result<(), Box<dyn std::error::Err
 
 // ─── Random Mode ────────────────────────────────────────────────────────────
 
-fn pick_random(folders: &[PathBuf]) -> Result<PathBuf, Box<dyn std::error::Error>> {
+pub fn pick_random(folders: &[PathBuf]) -> Result<PathBuf, Box<dyn std::error::Error>> {
     let candidates = collect_images(folders)?;
     if candidates.is_empty() {
         return Err("No wallpapers found".into());
@@ -79,7 +79,7 @@ fn pick_random(folders: &[PathBuf]) -> Result<PathBuf, Box<dyn std::error::Error
 
 /// Picks the next wallpaper in mtime order, resuming from `last_wallpaper` if provided.
 /// When the queue is exhausted, resets and starts from the beginning.
-fn pick_sequential(
+pub fn pick_sequential(
     folders: &[PathBuf],
     last_wallpaper: &Option<PathBuf>,
     reverse: bool,

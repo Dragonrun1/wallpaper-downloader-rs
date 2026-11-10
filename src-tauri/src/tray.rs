@@ -6,12 +6,15 @@ use tauri::{
 
 pub fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
     let show = MenuItem::with_id(app, "show", "Show", true, None::<&str>)?;
+    let open_downloads =
+        MenuItem::with_id(app, "open_downloads", "Open Downloads", true, None::<&str>)?;
     let pause = MenuItem::with_id(app, "pause", "Pause Downloading", true, None::<&str>)?;
     let resume = MenuItem::with_id(app, "resume", "Resume Downloading", true, None::<&str>)?;
     let change_wallpaper =
         MenuItem::with_id(app, "change", "Change Wallpaper", true, None::<&str>)?;
     let next_wallpaper = MenuItem::with_id(app, "next", "Next Wallpaper", true, None::<&str>)?;
     let manage = MenuItem::with_id(app, "manage", "Manage Wallpapers", true, None::<&str>)?;
+    let choose = MenuItem::with_id(app, "choose", "Choose Wallpaper", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
 
     let menu = Menu::with_items(
@@ -19,12 +22,15 @@ pub fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
         &[
             &show,
             &PredefinedMenuItem::separator(app)?,
+            &open_downloads,
             &pause,
             &resume,
+            &PredefinedMenuItem::separator(app)?,
             &change_wallpaper,
             &next_wallpaper,
             &PredefinedMenuItem::separator(app)?,
             &manage,
+            &choose,
             &PredefinedMenuItem::separator(app)?,
             &quit,
         ],
@@ -42,24 +48,26 @@ pub fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
                     let _ = window.set_focus();
                 }
             }
+            "open_downloads" => {
+                let _ = app.emit("tray-open-downloads", ());
+            }
             "pause" => {
-                app.emit("tray-pause", ()).ok();
+                let _ = app.emit("tray-pause", ());
             }
             "resume" => {
-                app.emit("tray-resume", ()).ok();
+                let _ = app.emit("tray-resume", ());
             }
             "change" => {
-                app.emit("tray-change-wallpaper", ()).ok();
+                let _ = app.emit("tray-change-wallpaper", ());
             }
             "next" => {
-                app.emit("tray-next-wallpaper", ()).ok();
+                let _ = app.emit("tray-next-wallpaper", ());
             }
             "manage" => {
-                if let Some(window) = app.get_webview_window("main") {
-                    let _ = window.show();
-                    let _ = window.set_focus();
-                    app.emit("open-tab", "wallpapers").ok();
-                }
+                let _ = app.emit("tray-manage", ());
+            }
+            "choose" => {
+                let _ = app.emit("tray-choose", ());
             }
             "quit" => {
                 app.exit(0);

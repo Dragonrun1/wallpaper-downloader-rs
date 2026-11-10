@@ -1,9 +1,14 @@
-use crate::AppState;
+use crate::{Arc, RwLock};
 use crate::prefs::Prefs;
 use crate::providers::Provider;
 use anyhow::Result;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager, State};
+
+#[derive(Default)]
+pub struct AppState {
+    pub downloading: Arc<RwLock<bool>>,
+}
 
 pub async fn run_harvest_loop(app_handle: AppHandle) {
     loop {
