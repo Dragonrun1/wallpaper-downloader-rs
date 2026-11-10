@@ -2,96 +2,285 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Prefs {
-    // Providers
-    pub provider_wallhaven: bool,
-    pub wallpaper_search_type: u8,
-    pub provider_deviantart: bool,
-    pub wallpaper_deviantart_search_type: u8,
-    pub provider_bing: bool,
-    pub provider_social_wallpapering: bool,
-    pub provider_social_wallpapering_ignore_keywords: bool,
-    pub provider_wallpaper_fusion: bool,
-    pub provider_dual_monitor: bool,
-    pub provider_dual_monitor_search_type: u8,
-    pub provider_unsplash: bool,
-    pub provider_unsplash_search_type: u8,
+    pub providers: Providers,
+    pub resolution: Resolution,
+    pub harvester: Harvester,
+    pub changer: Changer,
+    pub downloads: Downloads,
+    pub ui: Ui,
+}
 
-    // Keywords
-    pub wallhaven_keywords: String,
+// ─── Providers ───────────────────────────────────────────────
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct Providers {
+    pub wallhaven: Wallhaven,
+    pub unsplash: Unsplash,
+    pub bing: bool,
+    pub deviantart: DeviantArt,
+    pub social_wallpapering: SocialWallpapering,
+    pub wallpaper_fusion: bool,
+    pub dual_monitor: DualMonitor,
+    pub download_policy: DownloadPolicy,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct Wallhaven {
+    pub enabled: bool,
+    pub search_type: SearchType,
+    pub keywords: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct Unsplash {
+    pub enabled: bool,
+    pub search_type: SearchType,
+    pub api_key: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct DeviantArt {
+    pub enabled: bool,
+    pub search_type: DeviantArtSearchType,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct SocialWallpapering {
+    pub enabled: bool,
+    pub ignore_keywords: bool,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct DualMonitor {
+    pub enabled: bool,
+    pub search_type: SearchType,
+}
+
+// ─── Enums (replace magic numbers) ──────────────────────────
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum SearchType {
+    Relevant,
+    Top,
+    Random,
+    DateAdded,
+    Views,
+    Favorites,
+}
+
+impl Default for SearchType {
+    fn default() -> Self { Self::Relevant }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum DeviantArtSearchType {
+    Relevance,
+    Newest,
+    Oldest,
+    Random,
+    ViewCount,
+    FaveCount,
+    // ... add the rest from your Java combo box
+}
+
+impl Default for DeviantArtSearchType {
+    fn default() -> Self { Self::Relevance }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum DownloadPolicy {
+    /// Download only if current wallpaper matches resolution
+    MatchResolution,
+    /// Always download
+    Always,
+    /// Skip if file already exists
+    SkipExisting,
+}
+
+impl Default for DownloadPolicy {
+    fn default() -> Self { Self::MatchResolution }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum ChangerMode {
+    Random,
+    Sequential,
+    Reverse,
+}
+
+impl Default for ChangerMode {
+    fn default() -> Self { Self::Random }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum TimeUnit {
+    Seconds,
+    Minutes,
+    Hours,
+}
+
+impl Default for TimeUnit {
+    fn default() -> Self { Self::Minutes }
+}
+
+impl TimeUnit {
+    pub fn to_seconds(&self, value: u32) -> u64 {
+        match self {
+            TimeUnit::Seconds => value as u64,
+            TimeUnit::Minutes => value as u64 * 60,
+            TimeUnit::Hours   => value as u64 * 3600,
+        }
+    }
+}
+
+// ─── Resolution ─────────────────────────────────────────────
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct Resolution {
+    pub width: u32,
+    pub height: u32,
+}
+
+impl Resolution {
+    pub fn new(width: u32, height: u32) -> Self {
+        Self { width, height }
+    }
+}
+
+impl Default for Resolution {
+    fn default() -> Self {
+        Self { width: 1920, height: 1080 }
+    }
+}
+
+// ─── Harvester (download loop) ──────────────────────────────
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct Harvester {
+    pub enabled: bool,
+    pub interval: u32,
+    pub interval_units: TimeUnit,
     pub avoid_keywords: String,
+}
 
-    // Resolution
-    pub wallpaper_resolution: String, // e.g. "1920x1080"
+impl Default for Harvester {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            interval: 5,
+            interval_units: TimeUnit::Minutes,
+            avoid_keywords: String::new(),
+        }
+    }
+}
 
-    // Download policy
-    pub download_policy: u8,
+// ─── Changer (wallpaper rotation) ───────────────────────────
 
-    // Timer
-    pub application_timer: u32,
-    pub application_timer_units: String, // "s", "m", "h"
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct Changer {
+    pub interval: u32,
+    pub interval_units: TimeUnit,
+    pub mode: ChangerMode,
+    pub folders: Vec<PathBuf>,
+    pub multi_monitor: bool,
+}
 
-    // Changer
-    pub application_changer: u32,
-    pub application_changer_units: String,
-    pub application_changer_mode: u8,
-    pub application_changer_folder: String, // semicolon-separated
-    pub application_changer_multimonitor: bool,
+impl Default for Changer {
+    fn default() -> Self {
+        Self {
+            interval: 5,
+            interval_units: TimeUnit::Minutes,
+            mode: ChangerMode::Random,
+            folders: Vec::new(),
+            multi_monitor: false,
+        }
+    }
+}
 
-    // Downloads
-    pub downloads_path: String,
-    pub application_max_download_folder_size: u32, // MB
-    pub downloading_process: bool,
+// ─── Downloads ──────────────────────────────────────────────
 
-    // Move favorites
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct Downloads {
+    pub path: PathBuf,
+    pub max_size_mb: u32,
     pub move_favorite: bool,
-    pub move_favorite_folder: String,
+    pub move_favorite_folder: PathBuf,
+}
 
-    // UI
+impl Default for Downloads {
+    fn default() -> Self {
+        let home = dirs::home_dir().unwrap_or_default();
+        Self {
+            path: home.join("Pictures").join("Wallpapers"),
+            max_size_mb: 2048,
+            move_favorite: false,
+            move_favorite_folder: PathBuf::new(),
+        }
+    }
+}
+
+// ─── UI ─────────────────────────────────────────────────────
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct Ui {
+    pub i18n: u8,
+    pub notifications: NotificationLevel,
     pub start_minimized: bool,
     pub time_to_minimize: u32,
     pub system_tray_icon: bool,
-    pub application_notifications: u8,
-    pub application_i18n: u8,
 }
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum NotificationLevel {
+    None,
+    Minimal,
+    Full,
+}
+
+impl Default for NotificationLevel {
+    fn default() -> Self { Self::Minimal }
+}
+
+impl Default for Ui {
+    fn default() -> Self {
+        Self {
+            i18n: 0,
+            notifications: NotificationLevel::Minimal,
+            start_minimized: false,
+            time_to_minimize: 3,
+            system_tray_icon: true,
+        }
+    }
+}
+
+// ─── Prefs Default ──────────────────────────────────────────
 
 impl Default for Prefs {
     fn default() -> Self {
         Self {
-            provider_wallhaven: true,
-            wallpaper_search_type: 0,
-            provider_deviantart: false,
-            wallpaper_deviantart_search_type: 0,
-            provider_bing: false,
-            provider_social_wallpapering: false,
-            provider_social_wallpapering_ignore_keywords: false,
-            provider_wallpaper_fusion: false,
-            provider_dual_monitor: false,
-            provider_dual_monitor_search_type: 0,
-            provider_unsplash: false,
-            provider_unsplash_search_type: 0,
-            wallhaven_keywords: String::new(),
-            avoid_keywords: String::new(),
-            wallpaper_resolution: "1920x1080".into(),
-            download_policy: 0,
-            application_timer: 5,
-            application_timer_units: "m".into(),
-            application_changer: 5,
-            application_changer_units: "m".into(),
-            application_changer_mode: 0,
-            application_changer_folder: String::new(),
-            application_changer_multimonitor: false,
-            downloads_path: default_downloads_path(),
-            application_max_download_folder_size: 2048,
-            downloading_process: true,
-            move_favorite: false,
-            move_favorite_folder: String::new(),
-            start_minimized: false,
-            time_to_minimize: 3,
-            system_tray_icon: true,
-            application_notifications: 1,
-            application_i18n: 0,
+            providers: Providers {
+                wallhaven: Wallhaven { enabled: true, search_type: SearchType::default(), keywords: String::new() },
+                unsplash: Unsplash { enabled: false, search_type: SearchType::default(), api_key: String::new() },
+                bing: false,
+                deviantart: DeviantArt { enabled: false, search_type: DeviantArtSearchType::default() },
+                social_wallpapering: SocialWallpapering { enabled: false, ignore_keywords: false },
+                wallpaper_fusion: false,
+                dual_monitor: DualMonitor { enabled: false, search_type: SearchType::default() },
+                download_policy: DownloadPolicy::default(),
+            },
+            resolution: Resolution::default(),
+            harvester: Harvester::default(),
+            changer: Changer::default(),
+            downloads: Downloads::default(),
+            ui: Ui::default(),
         }
     }
 }

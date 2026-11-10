@@ -1,3 +1,4 @@
+use std::path::Path;
 use tauri::Emitter;
 use std::time::Duration;
 use tauri::{AppHandle, Manager, State};
@@ -10,13 +11,14 @@ pub async fn run_changer_loop(app_handle: AppHandle) {
             state.clone()
         };
 
-        if prefs.application_changer > 0 {
+        if prefs.changer.interval > 0 {
             if let Err(e) = change_wallpaper(&app_handle).await {
                 tracing::error!("Changer error: {}", e);
             }
         }
 
-        let delay = timer_to_duration(prefs.application_changer, &prefs.application_changer_units);
+        let unit= &prefs.changer.interval_units;
+        let delay = Duration::from_secs(unit.to_seconds(prefs.changer.interval));
         tokio::time::sleep(delay).await;
     }
 }
@@ -24,26 +26,14 @@ pub async fn run_changer_loop(app_handle: AppHandle) {
 async fn change_wallpaper(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     let prefs = app.state::<Prefs>();
 
-    // Get next wallpaper from changer folders
-    let folders: Vec<&str> = prefs.application_changer_folder.split(';').filter(|s| !s.is_empty()).collect();
-    if folders.is_empty() {
+    if prefs.changer.folders.is_empty() {
         return Ok(());
     }
 
-    // Pick a random file from the folders
+    let folders: Vec<&Path> = prefs.changer.folders.iter().map(|p| p.as_path()).collect();
     let next = crate::wallpaper::pick_random_wallpaper(&folders)?;
     crate::wallpaper::set_wallpaper(&next)?;
 
     app.emit("wallpaper-changed", next.to_string_lossy().to_string()).ok();
     Ok(())
-}
-
-fn timer_to_duration(value: u32, units: &str) -> Duration {
-    let secs = match units {
-        "s" => value as u64,
-        "m" => value as u64 * 60,
-        "h" => value as u64 * 3600,
-        _ => value as u64 * 60,
-    };
-    Duration::from_secs(secs)
 }

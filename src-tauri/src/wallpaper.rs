@@ -39,7 +39,7 @@ pub fn set_wallpaper(path: &Path) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-pub fn pick_random_wallpaper(folders: &[&str]) -> Result<PathBuf, Box<dyn std::error::Error>> {
+pub fn pick_random_wallpaper(folders: &[&Path]) -> Result<PathBuf, Box<dyn std::error::Error>> {
     let mut candidates: Vec<PathBuf> = Vec::new();
     for folder in folders {
         for entry in WalkDir::new(folder)

@@ -6,6 +6,7 @@ use tauri::State;
 pub fn get_prefs(prefs: State<Prefs>) -> Prefs {
     (*prefs).clone()
 }
+
 #[tauri::command]
 pub fn save_prefs(prefs: State<Prefs>, _new_prefs: Prefs) -> Result<(), String> {
     // Update and persist
@@ -31,45 +32,23 @@ pub fn set_wallpaper(path: String) -> Result<(), String> {
 
 #[tauri::command]
 pub fn get_disk_usage(prefs: State<Prefs>) -> Result<u8, String> {
-    let path = std::path::Path::new(&prefs.downloads_path);
+    let path = &prefs.downloads.path;
     if !path.exists() {
         return Ok(0);
     }
 
-    let disks = match sysinfo::Disks::new_with_refreshed_list() {
-        Ok(d) => d,
-        Err(e) => {
-            tracing::warn!("Disk info unavailable: {}", e);
-            return Ok(0);
-        }
-    };
-    for disk in disks.iter() {
+    let disks = sysinfo::Disks::new_with_refreshed_list()
+        .map_err(|e| format!("Failed to get disk info: {}", e))?;
+
+    for disk in &disks {
         if path.starts_with(disk.mount_point()) {
             let total = disk.total_space();
             let free = disk.available_space();
             if total == 0 {
                 return Ok(0);
             }
-            let used_pct = ((total - free) * 100) / total;
-            return Ok(used_pct as u8);
+            return Ok(((total - free) * 100 / total) as u8);
         }
-    }
-
-    // Fallback: if no mount point matched (e.g. on some Linux setups),
-    // walk up the path
-    let mut current = Some(path);
-    while let Some(p) = current {
-        for disk in disks.iter() {
-            if p.starts_with(disk.mount_point()) {
-                let total = disk.total_space();
-                let free = disk.available_space();
-                if total == 0 {
-                    return Ok(0);
-                }
-                return Ok(((total - free) * 100 / total) as u8);
-            }
-        }
-        current = p.parent();
     }
 
     Ok(0)
