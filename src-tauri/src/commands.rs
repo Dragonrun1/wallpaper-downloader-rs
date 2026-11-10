@@ -1,6 +1,12 @@
+use crate::wallpaper::DesktopEnvironment;
 use crate::AppState;
 use crate::prefs::Prefs;
 use tauri::State;
+
+#[tauri::command]
+pub fn can_change_wallpaper() -> bool {
+    DesktopEnvironment::detect().is_changeable()
+}
 
 #[tauri::command]
 pub fn get_prefs(prefs: State<Prefs>) -> Prefs {
