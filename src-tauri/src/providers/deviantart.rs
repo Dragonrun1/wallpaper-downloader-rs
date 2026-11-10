@@ -1,10 +1,9 @@
-use crate::prefs::Prefs;
 use anyhow::Result;
-use std::fs::{create_dir_all, write};
-use std::time::{SystemTime, UNIX_EPOCH};
+use crate::prefs::Prefs;
+use super::{build_client, download_and_save};
 
 pub async fn harvest(prefs: &Prefs) -> Result<()> {
-    let client = reqwest::Client::new();
+    let client = build_client()?;
 
     let url = format!(
         "https://api.deviantart.com/v1/oauth2/browse/deviations?q={}&mature_content=off&has_nsfw_marker=false&width={}&height={}&order=popular&offset=0&limit=1",
@@ -21,8 +20,7 @@ pub async fn harvest(prefs: &Prefs) -> Result<()> {
         .json()
         .await?;
 
-    let result = resp["result"]
-        .as_array()
+    let result = resp["result"].as_array()
         .ok_or_else(|| anyhow::anyhow!("DeviantArt: no result array"))?;
 
     if result.is_empty() {
@@ -30,21 +28,22 @@ pub async fn harvest(prefs: &Prefs) -> Result<()> {
     }
 
     let item = &result[0];
-    let download_url = item["src"]
-        .as_str()
+    let download_url = item["src"].as_str()
         .ok_or_else(|| anyhow::anyhow!("DeviantArt: missing download URL"))?;
 
-    let bytes = client.get(download_url).send().await?.bytes().await?;
+    let filename = format!("deviantart_{}.jpg", timestamp());
+    let saved = download_and_save(&client, prefs, download_url, &filename).await?;
 
-    create_dir_all(&prefs.downloads.path)?;
-    let filename = format!(
-        "deviantart_{}.jpg",
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs()
-    );
-    write(prefs.downloads.path.join(&filename), &bytes)?;
+    if !saved {
+        anyhow::bail!("DeviantArt: wallpaper already exists");
+    }
 
     Ok(())
+}
+
+fn timestamp() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
 }

@@ -1,6 +1,7 @@
 use anyhow::Result;
 use scraper::{Html, Selector};
 use crate::prefs::Prefs;
+use super::{build_client, download_and_save, has_forbidden_keyword};
 
 const BASE_URL: &str = "https://www.wallpaperfusion.com/";
 const DOWNLOAD_URL: &str = "https://www.wallpaperfusion.com/Download/";
@@ -8,10 +9,7 @@ const SEARCH_URL: &str = "https://www.wallpaperfusion.com/Ajax/BuildSearchResult
 const ORIGINAL_PARAMS: &str = "?W=-1&H=-1";
 
 pub async fn harvest(prefs: &Prefs) -> Result<()> {
-    let client = reqwest::Client::builder()
-        .user_agent("Mozilla/5.0")
-        .build()?;
-
+    let client = build_client()?;
     let mut page: u32 = 0;
 
     loop {
@@ -20,7 +18,6 @@ pub async fn harvest(prefs: &Prefs) -> Result<()> {
 
         let links = get_wallpaper_links(&document);
         if links.is_empty() {
-            tracing::info!("WallpaperFusion: no more wallpapers found");
             anyhow::bail!("WallpaperFusion: no new wallpapers found");
         }
 
@@ -33,8 +30,6 @@ pub async fn harvest(prefs: &Prefs) -> Result<()> {
         page += 1;
     }
 }
-
-// ─── Fetch Listing (main page or search) ────────────────────────────────────
 
 async fn fetch_listing(client: &reqwest::Client, prefs: &Prefs, page: u32) -> Result<String> {
     let keywords = &prefs.providers.wallhaven.keywords;
@@ -82,8 +77,6 @@ async fn fetch_listing(client: &reqwest::Client, prefs: &Prefs, page: u32) -> Re
     }
 }
 
-// ─── HTML Parsing ───────────────────────────────────────────────────────────
-
 fn get_wallpaper_links(document: &Html) -> Vec<String> {
     let selector = Selector::parse("a.ImageThumbBorder").unwrap();
     document
@@ -91,8 +84,6 @@ fn get_wallpaper_links(document: &Html) -> Vec<String> {
         .filter_map(|el| el.value().attr("href").map(|h| h.to_string()))
         .collect()
 }
-
-// ─── Single Wallpaper Download ──────────────────────────────────────────────
 
 async fn download_wallpaper(
     client: &reqwest::Client,
@@ -107,8 +98,7 @@ async fn download_wallpaper(
         .await?;
     let doc = Html::parse_document(&detail_html);
 
-    if has_forbidden_keyword(&doc, prefs) {
-        tracing::debug!("WallpaperFusion: skipping (forbidden keyword)");
+    if has_forbidden_keyword(&doc, "a.WPFTag", prefs) {
         return Ok(false);
     }
 
@@ -118,23 +108,10 @@ async fn download_wallpaper(
     }
 
     let filename = format!("wd_wf-{id}.jpg");
-    let filepath = prefs.downloads.path.join(&filename);
-
-    if filepath.exists() {
-        return Ok(false);
-    }
-
     let download_url = build_download_url(prefs, id);
 
-    std::fs::create_dir_all(&prefs.downloads.path)?;
-    let bytes = client.get(&download_url).send().await?.bytes().await?;
-    std::fs::write(&filepath, &bytes)?;
-
-    tracing::info!("WallpaperFusion: saved {}", filepath.display());
-    Ok(true)
+    download_and_save(client, prefs, &download_url, &filename).await
 }
-
-// ─── Download URL Construction ──────────────────────────────────────────────
 
 fn build_download_url(prefs: &Prefs, id: &str) -> String {
     match prefs.providers.download_policy {
@@ -147,33 +124,6 @@ fn build_download_url(prefs: &Prefs, id: &str) -> String {
     }
 }
 
-// ─── Keyword Filtering ──────────────────────────────────────────────────────
-
-fn has_forbidden_keyword(doc: &Html, prefs: &Prefs) -> bool {
-    if prefs.harvester.avoid_keywords.is_empty() {
-        return false;
-    }
-
-    let forbidden: Vec<String> = prefs
-        .harvester
-        .avoid_keywords
-        .split(';')
-        .filter(|s| !s.is_empty())
-        .map(|s| s.to_lowercase())
-        .collect();
-
-    let tag_selector = Selector::parse("a.WPFTag").unwrap();
-    doc.select(&tag_selector).any(|tag| {
-        let text: String = tag.text().collect::<String>().to_lowercase();
-        forbidden.iter().any(|f| text.contains(f.as_str()))
-    })
-}
-
-// ─── ID Extraction ──────────────────────────────────────────────────────────
-
 fn extract_wallpaper_id(url: &str) -> &str {
-    url.trim_end_matches('/')
-        .rsplit('/')
-        .next()
-        .unwrap_or("")
+    url.trim_end_matches('/').rsplit('/').next().unwrap_or("")
 }
