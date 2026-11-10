@@ -18,7 +18,7 @@ pub fn set(path: &Path) -> Result<()> {
             SPI_SETDESKWALLPAPER,
             0,
             wide_path.as_ptr() as *const core::ffi::c_void,
-            SPIF_UPDATEINIFILE | SPIF_SENDWININICHANGE,
+            SPIF_SENDWININICHANGE,
         )
     };
 

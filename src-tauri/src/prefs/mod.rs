@@ -1,14 +1,14 @@
 pub mod enums;
 pub mod providers;
 
-use enums::{ChangerMode, DownloadPolicy, NotificationLevel, TimeUnit};
+use enums::{NotificationLevel, TimeUnit};
 use providers::Providers;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 
 // Re-export for convenience
-pub use enums::{DeviantArtSearchType, SearchType};
+pub use enums::{ChangerMode, DownloadPolicy, SearchType};
 pub use providers::{
     Bing, DeviantArt, DualMonitor, SocialWallpapering, Unsplash, Wallhaven, WallpaperFusion, WfSort,
 };
@@ -129,6 +129,7 @@ pub struct Changer {
     pub mode: ChangerMode,
     pub folders: Vec<PathBuf>,
     pub multi_monitor: bool,
+    pub last_wallpaper: Option<PathBuf>,
 }
 
 impl Default for Changer {
@@ -139,6 +140,7 @@ impl Default for Changer {
             mode: ChangerMode::Random,
             folders: Vec::new(),
             multi_monitor: false,
+            last_wallpaper: None,
         }
     }
 }

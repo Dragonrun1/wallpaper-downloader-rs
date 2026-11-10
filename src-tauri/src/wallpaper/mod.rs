@@ -90,13 +90,18 @@ impl DesktopEnvironment {
     }
 
     pub fn is_changeable(&self) -> bool {
+        // Snap sandbox blocks wallpaper setters on these DEs
+        #[cfg(target_os = "linux")]
+        if std::env::var("SNAP").is_ok() {
+            return !matches!(self, Self::KDE | Self::XFCE | Self::Sway | Self::Hyprland);
+        }
         matches!(self,
-            Self::Gnome | Self::Unity | Self::MATE | Self::KDE |
-            Self::XFCE | Self::Cinnamon | Self::Pantheon | Self::Deepin |
-            Self::Budgie | Self::LXQt | Self::Cosmic |
-            Self::Sway | Self::Hyprland | Self::Niri | Self::River |
-            Self::I3 | Self::Openbox
-        )
+        Self::Gnome | Self::Unity | Self::MATE | Self::KDE |
+        Self::XFCE | Self::Cinnamon | Self::Pantheon | Self::Deepin |
+        Self::Budgie | Self::LXQt | Self::Cosmic |
+        Self::Sway | Self::Hyprland | Self::Niri | Self::River |
+        Self::I3 | Self::Openbox
+    )
     }
 
     pub fn name(&self) -> &'static str {

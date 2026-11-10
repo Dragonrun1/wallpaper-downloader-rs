@@ -1,3 +1,4 @@
+use crate::prefs::enums::DownloadPolicy;
 use anyhow::Result;
 use scraper::{Html, Selector};
 use crate::prefs::Prefs;

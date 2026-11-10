@@ -1,6 +1,6 @@
-use std::path::Path;
 use super::{DesktopEnvironment, run_cmd};
 use anyhow::Result;
+use std::path::Path;
 
 pub fn is_app_installed(app: &str) -> bool {
     std::process::Command::new("which")
@@ -14,30 +14,23 @@ pub fn is_app_installed(app: &str) -> bool {
 
 pub fn set(path: &Path, de: &DesktopEnvironment) -> Result<()> {
     match de {
-        DesktopEnvironment::Gnome | DesktopEnvironment::Unity
-        | DesktopEnvironment::Pantheon | DesktopEnvironment::Budgie =>
-            gnome(path),
-        DesktopEnvironment::MATE =>
-            mate(path),
-        DesktopEnvironment::KDE =>
-            kde(path),
-        DesktopEnvironment::XFCE =>
-            xfce(path),
-        DesktopEnvironment::Cinnamon =>
-            cinnamon(path),
-        DesktopEnvironment::Deepin =>
-            deepin(path),
-        DesktopEnvironment::LXQt =>
-            lxqt(path),
-        DesktopEnvironment::Cosmic =>
-            cosmic(path),
-        DesktopEnvironment::Hyprland =>
-            hyprland(path),
-        DesktopEnvironment::Sway | DesktopEnvironment::Niri
-        | DesktopEnvironment::River | DesktopEnvironment::I3 =>
-            wlroots(path),
-        DesktopEnvironment::Openbox =>
-            feh(path),
+        DesktopEnvironment::Gnome
+        | DesktopEnvironment::Unity
+        | DesktopEnvironment::Pantheon
+        | DesktopEnvironment::Budgie => gnome(path),
+        DesktopEnvironment::MATE => mate(path),
+        DesktopEnvironment::KDE => kde(path),
+        DesktopEnvironment::XFCE => xfce(path),
+        DesktopEnvironment::Cinnamon => cinnamon(path),
+        DesktopEnvironment::Deepin => deepin(path),
+        DesktopEnvironment::LXQt => lxqt(path),
+        DesktopEnvironment::Cosmic => cosmic(path),
+        DesktopEnvironment::Hyprland => hyprland(path),
+        DesktopEnvironment::Sway
+        | DesktopEnvironment::Niri
+        | DesktopEnvironment::River
+        | DesktopEnvironment::I3 => wlroots(path),
+        DesktopEnvironment::Openbox => feh(path),
         DesktopEnvironment::Unknown => {
             if is_app_installed("swww") {
                 swww(path)
@@ -54,30 +47,110 @@ pub fn set(path: &Path, de: &DesktopEnvironment) -> Result<()> {
     }
 }
 
-fn gnome(path: &Path) -> Result<()> {
+fn cinnamon(path: &Path) -> Result<()> {
     let uri = format!("file://{}", path.display());
-    run_cmd("gsettings", &["set", "org.gnome.desktop.background", "picture-uri", &uri])?;
-    let _ = run_cmd("gsettings", &["set", "org.gnome.desktop.background", "picture-uri-dark", &uri]);
-    Ok(())
+    run_cmd(
+        "gsettings",
+        &[
+            "set",
+            "org.cinnamon.desktop.background",
+            "picture-uri",
+            &uri,
+        ],
+    )
 }
 
-fn mate(path: &Path) -> Result<()> {
-    run_cmd("gsettings", &["set", "org.mate.background", "picture-filename", &path.to_string_lossy()])
+fn cosmic(path: &Path) -> Result<()> {
+    if is_app_installed("cosmic-bg") {
+        run_cmd("cosmic-bg", &[&path.to_string_lossy()])
+    } else {
+        let uri = format!("file://{}", path.display());
+        run_cmd(
+            "gsettings",
+            &["set", "org.gnome.desktop.background", "picture-uri", &uri],
+        )
+    }
+}
+
+fn deepin(path: &Path) -> Result<()> {
+    run_cmd(
+        "gsettings",
+        &[
+            "set",
+            "com.deepin.wrap.gnome.desktop.background",
+            "picture-uri",
+            &path.to_string_lossy(),
+        ],
+    )
+}
+
+fn feh(path: &Path) -> Result<()> {
+    run_cmd("feh", &["--bg-fill", &path.to_string_lossy()])
+}
+
+fn get_xrandr_monitors() -> Option<Vec<String>> {
+    let output = std::process::Command::new("xrandr").output().ok()?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    Some(
+        stdout
+            .lines()
+            .filter_map(|line| {
+                if line.contains(" connected") && !line.contains("disconnected") {
+                    line.split_whitespace().next().map(|s| s.to_string())
+                } else {
+                    None
+                }
+            })
+            .collect(),
+    )
+}
+
+fn gnome(path: &Path) -> Result<()> {
+    let uri = format!("file://{}", path.display());
+    run_cmd(
+        "gsettings",
+        &["set", "org.gnome.desktop.background", "picture-uri", &uri],
+    )?;
+    let _ = run_cmd(
+        "gsettings",
+        &[
+            "set",
+            "org.gnome.desktop.background",
+            "picture-uri-dark",
+            &uri,
+        ],
+    );
+    Ok(())
 }
 
 fn kde(path: &Path) -> Result<()> {
     let uri = format!("file://{}", path.display());
 
-    let plasma6 = std::process::Command::new("qdbus")
+    let output = std::process::Command::new("qdbus")
         .args(["org.kde.KWin", "/KWin", "org.kde.KWin.setWallpaper", &uri])
-        .output();
+        .output()
+        .map_err(|e| anyhow::anyhow!("qdbus failed: {}", e))?;
 
-    if let Ok(output) = plasma6 {
-        if output.status.success() {
-            return Ok(());
-        }
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    // Check for "widgets locked" D-Bus error
+    if stdout.contains("org.freedesktop.DBus.Error.Failed")
+        || stderr.contains("org.freedesktop.DBus.Error.Failed")
+    {
+        anyhow::bail!("KDE: widgets are locked, cannot change wallpaper");
     }
 
+    if !output.status.success() {
+        // Fall through to kwriteconfig fallback
+        return kde_fallback(path);
+    }
+
+    Ok(())
+}
+
+fn kde_fallback(path: &Path) -> Result<()> {
     let config = dirs::home_dir()
         .map(|h| h.join(".config/plasmarc"))
         .unwrap_or_default();
@@ -105,74 +178,6 @@ fn kde(path: &Path) -> Result<()> {
     Ok(())
 }
 
-fn xfce(path: &Path) -> Result<()> {
-    let monitors = get_xrandr_monitors().unwrap_or_default();
-
-    for monitor in &monitors {
-        let property = format!("/backdrop/screen0/monitor{}/workspace0/last-image", monitor);
-        let _ = run_cmd("xfconf-query", &[
-            "--channel", "xfce4-desktop",
-            "--property", &property,
-            "--set", &path.to_string_lossy(),
-        ]);
-    }
-
-    if monitors.is_empty() {
-        run_cmd("xfconf-query", &[
-            "--channel", "xfce4-desktop",
-            "--property", "/backdrop/screen0/monitor0/workspace0/last-image",
-            "--set", &path.to_string_lossy(),
-        ])?;
-    }
-
-    Ok(())
-}
-
-fn get_xrandr_monitors() -> Option<Vec<String>> {
-    let output = std::process::Command::new("xrandr")
-        .output()
-        .ok()?;
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    Some(
-        stdout
-            .lines()
-            .filter_map(|line| {
-                if line.contains(" connected") && !line.contains("disconnected") {
-                    line.split_whitespace().next().map(|s| s.to_string())
-                } else {
-                    None
-                }
-            })
-            .collect(),
-    )
-}
-
-fn cinnamon(path: &Path) -> Result<()> {
-    let uri = format!("file://{}", path.display());
-    run_cmd("gsettings", &["set", "org.cinnamon.desktop.background", "picture-uri", &uri])
-}
-
-fn deepin(path: &Path) -> Result<()> {
-    run_cmd("gsettings", &[
-        "set", "com.deepin.wrap.gnome.desktop.background", "picture-uri",
-        &path.to_string_lossy(),
-    ])
-}
-
-fn lxqt(path: &Path) -> Result<()> {
-    run_cmd("pcmanfm", &["--set-wallpaper", &path.to_string_lossy()])
-}
-
-fn cosmic(path: &Path) -> Result<()> {
-    if is_app_installed("cosmic-bg") {
-        run_cmd("cosmic-bg", &[&path.to_string_lossy()])
-    } else {
-        let uri = format!("file://{}", path.display());
-        run_cmd("gsettings", &["set", "org.gnome.desktop.background", "picture-uri", &uri])
-    }
-}
-
 fn hyprland(path: &Path) -> Result<()> {
     if is_app_installed("hyprctl") {
         let arg = format!(",{}", path.display());
@@ -182,6 +187,30 @@ fn hyprland(path: &Path) -> Result<()> {
     } else {
         anyhow::bail!("Hyprland: neither hyprctl nor swww available")
     }
+}
+
+fn lxqt(path: &Path) -> Result<()> {
+    run_cmd("pcmanfm", &["--set-wallpaper", &path.to_string_lossy()])
+}
+
+fn mate(path: &Path) -> Result<()> {
+    run_cmd(
+        "gsettings",
+        &[
+            "set",
+            "org.mate.background",
+            "picture-filename",
+            &path.to_string_lossy(),
+        ],
+    )
+}
+
+fn swaybg(path: &Path) -> Result<()> {
+    run_cmd("swaybg", &["-m", "fill", "-i", &path.to_string_lossy()])
+}
+
+fn swww(path: &Path) -> Result<()> {
+    run_cmd("swww", &["img", &path.to_string_lossy()])
 }
 
 fn wlroots(path: &Path) -> Result<()> {
@@ -198,14 +227,37 @@ fn wlroots(path: &Path) -> Result<()> {
     }
 }
 
-fn swww(path: &Path) -> Result<()> {
-    run_cmd("swww", &["img", &path.to_string_lossy()])
-}
+fn xfce(path: &Path) -> Result<()> {
+    let monitors = get_xrandr_monitors().unwrap_or_default();
 
-fn swaybg(path: &Path) -> Result<()> {
-    run_cmd("swaybg", &["-m", "fill", "-i", &path.to_string_lossy()])
-}
+    for monitor in &monitors {
+        let property = format!("/backdrop/screen0/monitor{}/workspace0/last-image", monitor);
+        let _ = run_cmd(
+            "xfconf-query",
+            &[
+                "--channel",
+                "xfce4-desktop",
+                "--property",
+                &property,
+                "--set",
+                &path.to_string_lossy(),
+            ],
+        );
+    }
 
-fn feh(path: &Path) -> Result<()> {
-    run_cmd("feh", &["--bg-fill", &path.to_string_lossy()])
+    if monitors.is_empty() {
+        run_cmd(
+            "xfconf-query",
+            &[
+                "--channel",
+                "xfce4-desktop",
+                "--property",
+                "/backdrop/screen0/monitor0/workspace0/last-image",
+                "--set",
+                &path.to_string_lossy(),
+            ],
+        )?;
+    }
+
+    Ok(())
 }
