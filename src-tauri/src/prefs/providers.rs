@@ -5,27 +5,29 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Providers {
-    pub wallhaven: Wallhaven,
-    pub unsplash: Unsplash,
     pub bing: Bing,
     pub deviantart: DeviantArt,
-    pub social_wallpapering: SocialWallpapering,
-    pub wallpaper_fusion: WallpaperFusion,
-    pub dual_monitor: DualMonitor,
     pub download_policy: DownloadPolicy,
+    pub dual_monitor: DualMonitor,
+    pub forbidden_keywords: String,
+    pub social_wallpapering: SocialWallpapering,
+    pub unsplash: Unsplash,
+    pub wallhaven: Wallhaven,
+    pub wallpaper_fusion: WallpaperFusion,
 }
 
 impl Default for Providers {
     fn default() -> Self {
         Self {
-            wallhaven: Wallhaven::default(),
-            unsplash: Unsplash::default(),
             bing: Bing::default(),
             deviantart: DeviantArt::default(),
-            social_wallpapering: SocialWallpapering::default(),
-            wallpaper_fusion: WallpaperFusion::default(),
-            dual_monitor: DualMonitor::default(),
             download_policy: DownloadPolicy::default(),
+            dual_monitor: DualMonitor::default(),
+            forbidden_keywords: String::new(),
+            social_wallpapering: SocialWallpapering::default(),
+            unsplash: Unsplash::default(),
+            wallhaven: Wallhaven::default(),
+            wallpaper_fusion: WallpaperFusion::default(),
         }
     }
 }

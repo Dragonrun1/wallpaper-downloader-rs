@@ -26,29 +26,29 @@ export interface Prefs {
 }
 
 export interface Providers {
-    wallhaven: boolean;
-    wallhaven_search_type: number;
+    bing: boolean;
     deviantart: boolean;
     deviantart_search_type: number;
-    bing: boolean;
-    social_wallpapering: boolean;
-    social_wallpapering_ignore_keywords: boolean;
-    wallpaper_fusion: boolean;
+    download_policy: number;
     dual_monitor: boolean;
     dual_monitor_search_type: number;
+    forbidden_keywords: string;
+    keywords: string;
+    social_wallpapering: boolean;
+    social_wallpapering_ignore_keywords: boolean;
     unsplash: boolean;
     unsplash_search_type: number;
-    keywords: string;
-    forbidden_keywords: string;
-    download_policy: number;
+    wallhaven: boolean;
+    wallhaven_search_type: number;
+    wallpaper_fusion: boolean;
 }
 
 export interface WallpaperInfo {
-    path: string;
-    width: number;
-    height: number;
-    provider: string;
     author: string;
     author_url: string;
+    height: number;
+    path: string;
+    provider: string;
     provider_url: string;
+    width: number;
 }

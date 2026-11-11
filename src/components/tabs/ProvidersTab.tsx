@@ -29,17 +29,25 @@ export default function ProvidersTab() {
 
     const p = prefs.providers;
 
-    async function applyKeywords() {
-        const updated = { ...prefs!, providers: { ...prefs!.providers, keywords } };
-        await cmd.savePrefs(updated);
+    // ─── Dot-path setter (handles nested objects) ───────────────────────────
+    function setField(path: string, value: unknown) {
+        const updated = structuredClone(prefs!);
+        const parts = path.split(".");
+        let obj: any = updated;
+        for (let i = 0; i < parts.length - 1; i++) obj = obj[parts[i]];
+        obj[parts[parts.length - 1]] = value;
         setPrefs(updated);
+        cmd.savePrefs(updated);
+    }
+
+    // ─── Apply handlers ─────────────────────────────────────────────────────
+    async function applyKeywords() {
+        setField("providers.wallhaven.keywords", keywords);
         setEditingKeywords(false);
     }
 
     async function applyForbidden() {
-        const updated = { ...prefs!, providers: { ...prefs!.providers, forbidden_keywords: forbidden } };
-        await cmd.savePrefs(updated);
-        setPrefs(updated);
+        setField("providers.forbidden_keywords", forbidden);
         setEditingForbidden(false);
     }
 
@@ -55,35 +63,20 @@ export default function ProvidersTab() {
         setHeight(1080);
     }
 
-    function toggleProvider(key: keyof typeof p, value: boolean) {
-        const updated = { ...prefs!, providers: { ...prefs!.providers, [key]: value } };
-        setPrefs(updated);
-        cmd.savePrefs(updated);
-    }
-
-    function setProviderSearch(key: string, value: number) {
-        const updated = { ...prefs!, providers: { ...prefs!.providers, [key]: value } };
-        setPrefs(updated);
-        cmd.savePrefs(updated);
-    }
-
     async function togglePause() {
-        if (paused) {
-            await cmd.resumeHarvesting();
-        } else {
-            await cmd.pauseHarvesting();
-        }
+        if (paused) await cmd.resumeHarvesting();
+        else await cmd.pauseHarvesting();
         setPaused(!paused);
     }
 
     const anyProviderEnabled =
-        p.wallhaven || p.deviantart || p.bing ||
-        p.social_wallpapering || p.wallpaper_fusion ||
-        p.dual_monitor || p.unsplash;
+        p.wallhaven.enabled || p.deviantart.enabled || p.bing.enabled ||
+        p.social_wallpapering.enabled || p.wallpaper_fusion.enabled ||
+        p.dual_monitor.enabled || p.unsplash.enabled;
 
     return (
         <div className="p-3 space-y-3 text-sm">
-            {/* Keywords */}
+            {/* Keywords (Wallhaven-specific) */}
             <div className="flex items-center gap-2">
                 <label className="w-[70px] shrink-0">Keywords</label>
                 {editingKeywords ? (
@@ -99,13 +92,13 @@ export default function ProvidersTab() {
                     </>
                 ) : (
                     <>
-                        <span className="flex-1 border rounded px-2 py-1 bg-gray-50">{p.keywords || "—"}</span>
-                        <button className="btn" onClick={() => { setKeywords(p.keywords); setEditingKeywords(true); }}>✎</button>
+                        <span className="flex-1 border rounded px-2 py-1 bg-gray-50">{p.wallhaven.keywords || "—"}</span>
+                        <button className="btn" onClick={() => { setKeywords(p.wallhaven.keywords); setEditingKeywords(true); }}>✎</button>
                     </>
                 )}
             </div>
 
-            {/* Forbidden keywords */}
+            {/* Forbidden keywords (global) */}
             <div className="flex items-center gap-2">
                 <label className="w-[70px] shrink-0">Avoid</label>
                 {editingForbidden ? (
@@ -153,7 +146,7 @@ export default function ProvidersTab() {
                 <select
                     className="flex-1 border rounded px-2 py-1"
                     value={p.download_policy}
-                    onChange={(e) => setProviderSearch("download_policy", +e.target.value)}
+                    onChange={(e) => setField("providers.download_policy", +e.target.value)}
                 >
                     <option value={0}>Fill disk</option>
                     <option value={1}>Keep last N</option>
@@ -167,39 +160,39 @@ export default function ProvidersTab() {
             <div className="space-y-2">
                 <ProviderRow
                     label="Wallhaven"
-                    checked={p.wallhaven}
-                    onChange={(v) => toggleProvider("wallhaven", v)}
-                    searchType={p.wallhaven_search_type}
-                    onSearchType={(v) => setProviderSearch("wallhaven_search_type", v)}
-                    searchOptions={["Top", "Latest", "Relevant", "Trending", "Resolution"]}
+                    checked={p.wallhaven.enabled}
+                    onChange={(v) => setField("providers.wallhaven.enabled", v)}
+                    searchType={p.wallhaven.search_type}
+                    onSearchType={(v) => setField("providers.wallhaven.search_type", v)}
+                    searchOptions={["top", "latest", "relevant", "trending", "resolution"]}
                 />
                 <hr className="border-gray-200" />
                 <ProviderRow
                     label="DeviantArt"
-                    checked={p.deviantart}
-                    onChange={(v) => toggleProvider("deviantart", v)}
-                    searchType={p.deviantart_search_type}
-                    onSearchType={(v) => setProviderSearch("deviantart_search_type", v)}
-                    searchOptions={["Relevance", "Top Rated", "Latest", "Popular", "Date Added", "Newest"]}
+                    checked={p.deviantart.enabled}
+                    onChange={(v) => setField("providers.deviantart.enabled", v)}
+                    searchType={p.deviantart.search_type}
+                    onSearchType={(v) => setField("providers.deviantart.search_type", v)}
+                    searchOptions={["relevance", "top_rated", "latest", "popular", "date_added", "newest"]}
                 />
                 <hr className="border-gray-200" />
                 <ProviderRow
                     label="Bing"
-                    checked={p.bing}
-                    onChange={(v) => toggleProvider("bing", v)}
+                    checked={p.bing.enabled}
+                    onChange={(v) => setField("providers.bing.enabled", v)}
                 />
                 <hr className="border-gray-200" />
                 <ProviderRow
                     label="Social Wallpapering"
-                    checked={p.social_wallpapering}
-                    onChange={(v) => toggleProvider("social_wallpapering", v)}
+                    checked={p.social_wallpapering.enabled}
+                    onChange={(v) => setField("providers.social_wallpapering.enabled", v)}
                     extra={
                         <label className="flex items-center gap-1 text-xs">
                             <input
                                 type="checkbox"
-                                checked={p.social_wallpapering_ignore_keywords}
-                                onChange={(e) => toggleProvider("social_wallpapering_ignore_keywords", e.target.checked)}
-                                disabled={!p.social_wallpapering}
+                                checked={p.social_wallpapering.ignore_keywords}
+                                onChange={(e) => setField("providers.social_wallpapering.ignore_keywords", e.target.checked)}
+                                disabled={!p.social_wallpapering.enabled}
                             />
                             Ignore keywords
                         </label>
@@ -208,26 +201,29 @@ export default function ProvidersTab() {
                 <hr className="border-gray-200" />
                 <ProviderRow
                     label="WallpaperFusion"
-                    checked={p.wallpaper_fusion}
-                    onChange={(v) => toggleProvider("wallpaper_fusion", v)}
+                    checked={p.wallpaper_fusion.enabled}
+                    onChange={(v) => setField("providers.wallpaper_fusion.enabled", v)}
+                    searchType={p.wallpaper_fusion.sort}
+                    onSearchType={(v) => setField("providers.wallpaper_fusion.sort", v)}
+                    searchOptions={["relevance", "popular", "newest"]}
                 />
                 <hr className="border-gray-200" />
                 <ProviderRow
                     label="Dual Monitor"
-                    checked={p.dual_monitor}
-                    onChange={(v) => toggleProvider("dual_monitor", v)}
-                    searchType={p.dual_monitor_search_type}
-                    onSearchType={(v) => setProviderSearch("dual_monitor_search_type", v)}
-                    searchOptions={["Top", "Latest", "Relevant"]}
+                    checked={p.dual_monitor.enabled}
+                    onChange={(v) => setField("providers.dual_monitor.enabled", v)}
+                    searchType={p.dual_monitor.search_type}
+                    onSearchType={(v) => setField("providers.dual_monitor.search_type", v)}
+                    searchOptions={["top", "latest", "relevant"]}
                 />
                 <hr className="border-gray-200" />
                 <ProviderRow
                     label="Unsplash"
-                    checked={p.unsplash}
-                    onChange={(v) => toggleProvider("unsplash", v)}
-                    searchType={p.unsplash_search_type}
-                    onSearchType={(v) => setProviderSearch("unsplash_search_type", v)}
-                    searchOptions={["Relevant", "Latest"]}
+                    checked={p.unsplash.enabled}
+                    onChange={(v) => setField("providers.unsplash.enabled", v)}
+                    searchType={p.unsplash.search_type}
+                    onSearchType={(v) => setField("providers.unsplash.search_type", v)}
+                    searchOptions={["relevant", "latest"]}
                 />
             </div>
 
@@ -261,8 +257,8 @@ function ProviderRow({
     label: string;
     checked: boolean;
     onChange: (v: boolean) => void;
-    searchType?: number;
-    onSearchType?: (v: number) => void;
+    searchType?: string;
+    onSearchType?: (v: string) => void;
     searchOptions?: string[];
     extra?: React.ReactNode;
 }) {
@@ -273,12 +269,12 @@ function ProviderRow({
             {searchOptions && onSearchType && (
                 <select
                     className="flex-1 border rounded px-1 py-0.5 text-xs"
-                    value={searchType ?? 0}
-                    onChange={(e) => onSearchType(+e.target.value)}
+                    value={searchType ?? ""}
+                    onChange={(e) => onSearchType(e.target.value)}
                     disabled={!checked}
                 >
-                    {searchOptions.map((opt, i) => (
-                        <option key={i} value={i}>{opt}</option>
+                    {searchOptions.map((opt) => (
+                        <option key={opt} value={opt}>{opt.replace("_", " ")}</option>
                     ))}
                 </select>
             )}
