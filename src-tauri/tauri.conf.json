@@ -3,11 +3,13 @@
   "version": "0.1.0",
   "identifier": "com.github.Dragonrun1.wallpaper-downloader-rs",
   "build": {
-    "beforeDevCommand": "npx vite",
+    "beforeDevCommand": "cd frontend && trunk serve",
+    "beforeBuildCommand": "cd frontend && trunk build --release",
     "devUrl": "http://localhost:1420",
-    "frontendDist": "../dist"
+    "frontendDist": "../frontend/dist"
   },
   "app": {
+    "withGlobalTauri": true,
     "windows": [
       {
         "label": "main",

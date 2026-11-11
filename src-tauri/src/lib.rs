@@ -87,6 +87,10 @@ pub fn run() {
                 changer::run_changer_loop(app_handle2).await;
             });
 
+            if let Some(w) = app.get_webview_window("main") {
+                w.open_devtools();
+            }
+
             Ok(())
         })
         .run(tauri::generate_context!())

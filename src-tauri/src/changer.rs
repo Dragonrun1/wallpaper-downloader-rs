@@ -48,7 +48,7 @@ async fn change_wallpaper(app: &AppHandle) -> Result<(), Box<dyn std::error::Err
 
     // Persist resume state (only meaningful for sequential modes)
     if !matches!(prefs.changer.mode, ChangerMode::Random) {
-        let mut prefs = app.state::<Prefs>();
+        let prefs = app.state::<Prefs>();
         // Note: in production you'd use a Mutex/Arc<RwLock> around Prefs
         // For the skeleton, we just log — the actual persistence happens
         // via a command when the user saves prefs
