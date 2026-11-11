@@ -109,22 +109,22 @@ pub async fn download_and_save(
     Ok(true)
 }
 
-pub fn has_forbidden_keyword(doc: &Html, selector: &str, prefs: &Prefs) -> bool {
-    if prefs.harvester.avoid_keywords.is_empty() {
-        return false;
-    }
-
-    let forbidden: Vec<String> = prefs
-        .harvester
-        .avoid_keywords
-        .split(';')
-        .filter(|s| !s.is_empty())
-        .map(|s| s.to_lowercase())
-        .collect();
-
-    let tag_sel = scraper::Selector::parse(selector).unwrap();
-    doc.select(&tag_sel).any(|tag| {
-        let text: String = tag.text().collect::<String>().to_lowercase();
-        forbidden.iter().any(|f| text.contains(f.as_str()))
-    })
-}
+// pub fn has_forbidden_keyword(doc: &Html, selector: &str, prefs: &Prefs) -> bool {
+//     if prefs.providers.forbidden_keywords.is_empty() {
+//         return false;
+//     }
+//
+//     let forbidden: Vec<String> = prefs
+//         .harvester
+//         .avoid_keywords
+//         .split(';')
+//         .filter(|s| !s.is_empty())
+//         .map(|s| s.to_lowercase())
+//         .collect();
+//
+//     let tag_sel = scraper::Selector::parse(selector).unwrap();
+//     doc.select(&tag_sel).any(|tag| {
+//         let text: String = tag.text().collect::<String>().to_lowercase();
+//         forbidden.iter().any(|f| text.contains(f.as_str()))
+//     })
+// }

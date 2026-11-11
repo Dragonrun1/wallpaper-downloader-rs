@@ -17,10 +17,11 @@ export interface Prefs {
         move_favorite_folder: string;
     };
     ui: {
+        i18n: number;
+        notifications: "none" | "minimal" | "full";
         start_minimized: boolean;
         time_to_minimize: number;
-        notifications: number;
-        i18n: number;
+        system_tray_icon: boolean;
     };
 }
 

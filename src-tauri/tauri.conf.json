@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "identifier": "com.github.Dragonrun1.wallpaper-downloader-rs",
   "build": {
+    "beforeDevCommand": "npx vite",
     "devUrl": "http://localhost:1420",
     "frontendDist": "../dist"
   },
@@ -19,10 +20,6 @@
         "minHeight": 400
       }
     ],
-    "trayIcon": {
-      "iconPath": "icons/icon.png",
-      "iconAsTemplate": true
-    },
     "security": {
       "csp": null
     }

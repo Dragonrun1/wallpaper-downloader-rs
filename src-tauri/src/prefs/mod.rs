@@ -43,11 +43,11 @@ impl Prefs {
         let base = if cfg!(target_os = "macos") {
             dirs::home_dir()
                 .unwrap()
-                .join("Library/Application Support/wallpaper-downloader")
+                .join("Library/Application Support/wallpaper-downloader-rs")
         } else {
             dirs::home_dir()
                 .unwrap()
-                .join(".config/wallpaper-downloader")
+                .join(".config/wallpaper-downloader-rs")
         };
         base.join("prefs.toml")
     }
@@ -84,18 +84,9 @@ pub struct Resolution {
     pub height: u32,
 }
 
-impl Resolution {
-    pub fn new(width: u32, height: u32) -> Self {
-        Self { width, height }
-    }
-}
-
 impl Default for Resolution {
     fn default() -> Self {
-        Self {
-            width: 1920,
-            height: 1080,
-        }
+        Self { width: 1920, height: 1080 }
     }
 }
 
@@ -103,19 +94,15 @@ impl Default for Resolution {
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Harvester {
-    pub enabled: bool,
     pub interval: u32,
     pub interval_units: TimeUnit,
-    pub avoid_keywords: String,
 }
 
 impl Default for Harvester {
     fn default() -> Self {
         Self {
-            enabled: true,
             interval: 5,
             interval_units: TimeUnit::Minutes,
-            avoid_keywords: String::new(),
         }
     }
 }
@@ -150,7 +137,7 @@ impl Default for Changer {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Downloads {
     pub path: PathBuf,
-    pub max_size_mb: u32,
+    pub max_size_gb: u32,
     pub move_favorite: bool,
     pub move_favorite_folder: PathBuf,
 }
@@ -160,7 +147,7 @@ impl Default for Downloads {
         let home = dirs::home_dir().unwrap_or_default();
         Self {
             path: home.join("Pictures").join("Wallpapers"),
-            max_size_mb: 2048,
+            max_size_gb: 2,
             move_favorite: false,
             move_favorite_folder: PathBuf::new(),
         }

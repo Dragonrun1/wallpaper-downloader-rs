@@ -159,11 +159,11 @@ export default function SettingsTab() {
                 <select
                     className="border rounded px-2 py-1"
                     value={prefs.ui.notifications}
-                    onChange={(e) => setField("ui.notifications", +e.target.value)}
+                    onChange={(e) => setField("ui.notifications", e.target.value)}
                 >
-                    <option value={0}>None</option>
-                    <option value={1}>Important only</option>
-                    <option value={2}>All</option>
+                    <option value="none">None</option>
+                    <option value="minimal">Minimal</option>
+                    <option value="full">Full</option>
                 </select>
             </div>
 
