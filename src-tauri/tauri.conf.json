@@ -1,4 +1,7 @@
 {
+  "productName": "Wallpaper Downloader RS",
+  "version": "0.1.0",
+  "identifier": "com.github.Dragonrun1.wallpaper-downloader-rs",
   "build": {
     "devUrl": "http://localhost:1420",
     "frontendDist": "../dist"
@@ -7,7 +10,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "WallpaperDownloader",
+        "title": "Wallpaper Downloader RS V0.1.0",
         "width": 694,
         "height": 445,
         "center": true,
@@ -16,6 +19,10 @@
         "minHeight": 400
       }
     ],
+    "trayIcon": {
+      "iconPath": "icons/icon.png",
+      "iconAsTemplate": true
+    },
     "security": {
       "csp": null
     }
