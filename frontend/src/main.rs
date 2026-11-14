@@ -5,7 +5,12 @@ mod app;
 mod tabs;
 mod windows;
 
-#[wasm_bindgen(inline_js = "export function get_window_label() { return window.__TAURI_INTERNALS__.metadata.currentWindow.label; }")]
+pub mod commands;
+pub mod types;
+
+#[wasm_bindgen(
+    inline_js = "export function get_window_label() { return window.__TAURI_INTERNALS__.metadata.currentWindow.label; }"
+)]
 extern "C" {
     fn get_window_label() -> String;
 }
