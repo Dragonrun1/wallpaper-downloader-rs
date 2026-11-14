@@ -1,9 +1,10 @@
-use std::{cell::RefCell, collections::HashMap, fs, time::SystemTime};
+use std::{cell::RefCell, collections::HashMap, fs, path::Path, time::SystemTime};
 
 use display_info::DisplayInfo;
 use more_wallpapers::{Mode, WallpaperBuilder};
 
 use crate::config::{ChangeOrder, ChangerConfig, MonitorMode};
+use crate::state::State;
 
 const EXTENSIONS: &[&str] = &["jpg", "jpeg", "png", "bmp", "webp"];
 
@@ -29,20 +30,66 @@ pub struct Engine {
 }
 
 impl Engine {
-    pub fn new() -> Self {
+    pub fn new(state: State) -> Self {
         // If detection fails, assume per-screen works and let the real call report errors
         let per_screen = WallpaperBuilder::new()
             .map(|b| b.environment().support_various_wallpaper())
             .unwrap_or(true);
         Self {
             per_screen,
-            last: RefCell::default(),
-            applied: RefCell::default(),
+            last: RefCell::new(state.last),
+            applied: RefCell::new(state.screens.into_iter().collect()),
         }
     }
 
     pub fn per_screen_supported(&self) -> bool {
         self.per_screen
+    }
+
+    fn save_state(&self) {
+        let state = State {
+            last: self.last.borrow().clone(),
+            screens: self
+                .applied
+                .borrow()
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect(),
+        };
+        if let Err(e) = state.save() {
+            eprintln!("Could not save state: {e}");
+        }
+    }
+
+    /// Re-apply the saved wallpapers (e.g. at startup).
+    pub fn restore(&self) -> Result<Outcome, String> {
+        let usable: HashMap<String, String> = self
+            .applied
+            .borrow()
+            .iter()
+            .filter(|(_, path)| Path::new(path.as_str()).is_file())
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+        let Some(fallback) = usable.values().next().cloned() else {
+            return Err("No saved wallpapers to restore".into());
+        };
+
+        WallpaperBuilder::new()
+            .map_err(|e| e.to_string())?
+            .set_wallpapers(|screen| {
+                let path = usable
+                    .get(&screen.name)
+                    .cloned()
+                    .or_else(|| screen.wallpaper.as_ref().map(|p| p.to_string()))
+                    .unwrap_or_else(|| fallback.clone());
+                (path, screen.mode.unwrap_or_default())
+            })
+            .map_err(|e| e.to_string())?;
+
+        Ok(Outcome {
+            by_screen: usable,
+            shared: None,
+        })
     }
 
     pub fn change(&self, cfg: &ChangerConfig) -> Result<Outcome, String> {
@@ -93,6 +140,7 @@ impl Engine {
 
         // Only remember it once the desktop accepted it
         self.applied.borrow_mut().extend(assigned);
+        self.save_state();
         Ok(Outcome {
             by_screen: self.applied.borrow().clone(),
             shared: (monitor_mode == MonitorMode::SameOnAll).then(|| picks[0].clone()),
@@ -164,14 +212,18 @@ fn target_screens(builder: &WallpaperBuilder, mode: MonitorMode) -> Result<Vec<u
 fn scan(dirs: &[String]) -> Vec<Image> {
     let mut out = Vec::new();
     for dir in dirs {
-        let Ok(entries) = fs::read_dir(dir) else { continue };
+        let Ok(entries) = fs::read_dir(dir) else {
+            continue;
+        };
         for entry in entries.flatten() {
             let path = entry.path();
             let is_image = path
                 .extension()
                 .and_then(|e| e.to_str())
                 .is_some_and(|e| EXTENSIONS.iter().any(|x| x.eq_ignore_ascii_case(e)));
-            let Some(path_str) = path.to_str() else { continue };
+            let Some(path_str) = path.to_str() else {
+                continue;
+            };
             let Ok(meta) = entry.metadata() else { continue };
             if !is_image || !meta.is_file() {
                 continue;

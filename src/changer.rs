@@ -1,13 +1,14 @@
-use std::rc::Rc;
+use std::{rc::Rc, time::Duration};
 
 use slint::{ComponentHandle, Model, ModelRc, SharedString, Timer, TimerMode, VecModel, Weak};
 
 use crate::{
+    AppTray, MainWindow,
     config::{ChangeOrder, ChangerConfig, IntervalUnit, MonitorMode},
     saver::Saver,
     screens::Screens,
+    state::State,
     wallpaper::Engine,
-    AppTray, MainWindow,
 };
 
 /// Wire up everything for the Changer tab.
@@ -18,13 +19,17 @@ pub fn setup(
     screens: &Rc<Screens>,
     initial: &ChangerConfig,
 ) {
-    let engine = Rc::new(Engine::new());
+    let engine = Rc::new(Engine::new(State::load()));
     window.set_changer_per_screen_supported(engine.per_screen_supported());
 
     let dirs = apply_config(window, initial);
     wire_directories(window, &dirs, saver);
     wire_schedule(window, saver, &engine, screens);
     wire_change_now(window, tray, &engine, screens);
+
+    if initial.restore_on_start {
+        schedule_restore(&engine, screens);
+    }
 }
 
 /// UI state -> config struct.
@@ -34,8 +39,13 @@ pub fn read_config(w: &MainWindow) -> ChangerConfig {
         interval: w.get_changer_interval().max(1) as u32,
         interval_unit: IntervalUnit::from_index(w.get_changer_interval_unit()),
         order: ChangeOrder::from_index(w.get_changer_order()),
-        directories: w.get_changer_directories().iter().map(|d| d.to_string()).collect(),
+        directories: w
+            .get_changer_directories()
+            .iter()
+            .map(|d| d.to_string())
+            .collect(),
         monitor_mode: MonitorMode::from_index(w.get_changer_monitor_mode()),
+        restore_on_start: w.get_changer_restore_on_start(),
     }
 }
 
@@ -46,9 +56,13 @@ fn apply_config(w: &MainWindow, c: &ChangerConfig) -> Rc<VecModel<SharedString>>
     w.set_changer_interval_unit(c.interval_unit.index());
     w.set_changer_order(c.order.index());
     w.set_changer_monitor_mode(c.monitor_mode.index());
+    w.set_changer_restore_on_start(c.restore_on_start);
 
     let dirs = Rc::new(VecModel::from(
-        c.directories.iter().map(|d| SharedString::from(d.as_str())).collect::<Vec<_>>(),
+        c.directories
+            .iter()
+            .map(|d| SharedString::from(d.as_str()))
+            .collect::<Vec<_>>(),
     ));
     w.set_changer_directories(ModelRc::from(dirs.clone()));
     dirs
@@ -86,6 +100,15 @@ fn wire_directories(w: &MainWindow, dirs: &Rc<VecModel<SharedString>>, saver: &R
             dirs.remove(i as usize);
             saver.mark_dirty();
         }
+    });
+}
+
+/// Give the desktop a moment to finish logging in before re-applying.
+fn schedule_restore(engine: &Rc<Engine>, screens: &Rc<Screens>) {
+    let (engine, screens) = (engine.clone(), screens.clone());
+    Timer::single_shot(Duration::from_secs(2), move || match engine.restore() {
+        Ok(outcome) => screens.set_outcome(&outcome),
+        Err(e) => eprintln!("Restore skipped: {e}"),
     });
 }
 
@@ -129,8 +152,16 @@ fn wire_change_now(
     engine: &Rc<Engine>,
     screens: &Rc<Screens>,
 ) {
-    window.on_changer_change_now(change_now_handler(window.as_weak(), engine.clone(), screens.clone()));
-    tray.on_change_now(change_now_handler(window.as_weak(), engine.clone(), screens.clone()));
+    window.on_changer_change_now(change_now_handler(
+        window.as_weak(),
+        engine.clone(),
+        screens.clone(),
+    ));
+    tray.on_change_now(change_now_handler(
+        window.as_weak(),
+        engine.clone(),
+        screens.clone(),
+    ));
 }
 
 fn change_now_handler(

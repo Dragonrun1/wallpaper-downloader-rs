@@ -59,30 +59,32 @@ component ScreenLayout inherits Rectangle {
 }
 
 export component ChangerPage inherits Rectangle {
-    in-out property <bool> auto-change: false;
-    in-out property <int> interval: 30;
-    in-out property <int> interval-unit: 1;      // 0 = seconds, 1 = minutes, 2 = hours
-    in-out property <int> order-index: 0;        // 0 = Randomly, 1 = Oldest to newest, 2 = Newest to oldest
-    in-out property <int> monitor-mode: 1;       // 0 = Primary only, 1 = Different per monitor, 2 = Same on all
-    in-out property <[string]> directories;
-    in property <bool> per-screen-supported: true;
-    in property <string> status;
     in property <[ScreenInfo]> screens;
-    in property <int> screens-width: 1;
+    in property <bool> per-screen-supported: true;
     in property <int> screens-height: 1;
+    in property <int> screens-width: 1;
+    in property <string> status;
+    in-out property <[string]> directories;
+    in-out property <bool> auto-change: false;
+    in-out property <bool> restore-on-start: true;
+    in-out property <int> interval-unit: 1;      // 0 = seconds, 1 = minutes, 2 = hours
+    in-out property <int> interval: 30;
+    in-out property <int> monitor-mode: 1;       // 0 = Primary only, 1 = Different per monitor, 2 = Same on all
+    in-out property <int> order-index: 0;        // 0 = Randomly, 1 = Oldest to newest, 2 = Newest to oldest
 
-    callback change-now();
-    callback settings-changed();
     callback add-directory();
     callback browse-directory(int);
-    callback remove-directory(int);
+    callback change-now();
     callback refresh-screens();
+    callback remove-directory(int);
+    callback settings-changed();
 
     changed auto-change => { root.settings-changed(); }
     changed interval => { root.settings-changed(); }
     changed interval-unit => { root.settings-changed(); }
-    changed order-index => { root.settings-changed(); }
     changed monitor-mode => { root.settings-changed(); }
+    changed order-index => { root.settings-changed(); }
+    changed restore-on-start => { root.settings-changed(); }
 
     VerticalBox {
         alignment: start;
@@ -143,6 +145,11 @@ export component ChangerPage inherits Rectangle {
                         current-index <=> root.monitor-mode;
                         enabled: root.per-screen-supported;
                     }
+                }
+
+                Switch {
+                    text: @tr("Restore the last wallpaper when the app starts");
+                    checked <=> root.restore-on-start;
                 }
 
                 if !root.per-screen-supported: Text {

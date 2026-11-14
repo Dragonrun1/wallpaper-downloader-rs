@@ -63,6 +63,7 @@ pub struct ChangerConfig {
     pub interval_unit: IntervalUnit,
     pub monitor_mode: MonitorMode,
     pub order: ChangeOrder,
+    pub restore_on_start: bool,
 }
 
 impl ChangerConfig {
@@ -86,6 +87,7 @@ impl Default for ChangerConfig {
             interval_unit: IntervalUnit::Minutes,
             monitor_mode: MonitorMode::DifferentPerMonitor,
             order: ChangeOrder::Random,
+            restore_on_start: true,
         }
     }
 }

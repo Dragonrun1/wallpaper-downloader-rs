@@ -4,9 +4,10 @@ mod changer;
 mod config;
 mod lifecycle;
 mod saver;
+mod screens;
+mod state;
 mod tray;
 mod wallpaper;
-mod screens;
 
 use config::Config;
 use saver::Saver;

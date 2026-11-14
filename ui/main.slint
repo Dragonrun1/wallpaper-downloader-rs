@@ -15,30 +15,33 @@ export component MainWindow inherits Window {
     preferred-height: 700px;
 
     in-out property <int> current-tab: 0;
+
     callback tab-changed();
+
     changed current-tab => { root.tab-changed(); }
 
     // Changer settings (mirrored from/to the Changer tab)
-    in-out property <bool> changer-enabled: false;
-    in-out property <int> changer-interval: 30;
-    in-out property <int> changer-interval-unit: 1;
-    in-out property <int> changer-order: 0;
-    in-out property <int> changer-monitor-mode: 1;
-    in-out property <[string]> changer-directories;
-    in property <bool> changer-per-screen-supported: true;
-    in-out property <bool> changer-all-monitors: true;
-    in property <string> changer-status;
-    in property <string> changer-current;
     in property <[ScreenInfo]> changer-screens;
-    in property <int> changer-screens-width: 1;
+    in property <bool> changer-per-screen-supported: true;
     in property <int> changer-screens-height: 1;
-    callback changer-refresh-screens();
+    in property <int> changer-screens-width: 1;
+    in property <string> changer-current;
+    in property <string> changer-status;
+    in-out property <[string]> changer-directories;
+    in-out property <bool> changer-all-monitors: true;
+    in-out property <bool> changer-enabled: false;
+    in-out property <bool> changer-restore-on-start: true;
+    in-out property <int> changer-interval-unit: 1;
+    in-out property <int> changer-interval: 30;
+    in-out property <int> changer-monitor-mode: 1;
+    in-out property <int> changer-order: 0;
 
-    callback changer-change-now();
-    callback changer-settings-changed();
     callback changer-add-directory();
     callback changer-browse-directory(int);
+    callback changer-change-now();
+    callback changer-refresh-screens();
     callback changer-remove-directory(int);
+    callback changer-settings-changed();
 
     TabWidget {
         current-index <=> root.current-tab;
@@ -48,24 +51,27 @@ export component MainWindow inherits Window {
         Tab {
             title: @tr("Changer");
             ChangerPage {
-                auto-change <=> root.changer-enabled;
-                interval <=> root.changer-interval;
-                interval-unit <=> root.changer-interval-unit;
-                order-index <=> root.changer-order;
-                monitor-mode <=> root.changer-monitor-mode;
-                directories <=> root.changer-directories;
                 per-screen-supported: root.changer-per-screen-supported;
-                status: root.changer-status;
-                screens: root.changer-screens;
-                screens-width: root.changer-screens-width;
                 screens-height: root.changer-screens-height;
+                screens-width: root.changer-screens-width;
+                screens: root.changer-screens;
+                status: root.changer-status;
 
-                change-now => { root.changer-change-now(); }
-                settings-changed => { root.changer-settings-changed(); }
                 add-directory => { root.changer-add-directory(); }
                 browse-directory(i) => { root.changer-browse-directory(i); }
-                remove-directory(i) => { root.changer-remove-directory(i); }
+                change-now => { root.changer-change-now(); }
                 refresh-screens => { root.changer-refresh-screens(); }
+                remove-directory(i) => { root.changer-remove-directory(i); }
+                settings-changed => { root.changer-settings-changed(); }
+
+                auto-change <=> root.changer-enabled;
+                directories <=> root.changer-directories;
+                interval <=> root.changer-interval;
+                interval-unit <=> root.changer-interval-unit;
+                monitor-mode <=> root.changer-monitor-mode;
+                order-index <=> root.changer-order;
+                restore-on-start <=> root.changer-restore-on-start;
+
             }
         }
         Tab { title: @tr("Downloads"); DownloadsPage { } }
