@@ -1,0 +1,34 @@
+use slint::ComponentHandle;
+
+mod changer;
+mod config;
+mod lifecycle;
+mod saver;
+mod tray;
+mod wallpaper;
+mod screens;
+
+use config::Config;
+use saver::Saver;
+
+slint::include_modules!();
+
+fn main() -> Result<(), slint::PlatformError> {
+    let window = MainWindow::new()?;
+    let tray = AppTray::new()?;
+
+    let cfg = Config::load();
+    let changer_cfg = cfg.changer.clone();
+    let saver = Saver::new(&window, cfg);
+
+    tray::setup(&tray, &window);
+    changer::setup(&window, &tray, &saver, &changer_cfg);
+    screens::setup(&window);
+    let _minimize_watcher = lifecycle::install(&window, &saver);
+
+    window.show()?;
+    tray.show()?;
+    let result = slint::run_event_loop();
+    saver.flush(); // covers quitting from the tray menu
+    result
+}

@@ -1,0 +1,97 @@
+import { TabWidget } from "std-widgets.slint";
+import { ChangerPage, ScreenInfo } from "changer.slint";
+export {ScreenInfo } from "changer.slint";
+
+component ProvidersPage inherits Rectangle { Text { text: "Providers"; } }
+component SettingsPage inherits Rectangle { Text { text: "Settings"; } }
+component DownloadsPage inherits Rectangle { Text { text: "Downloads"; } }
+component WallpapersPage inherits Rectangle { Text { text: "Wallpapers"; } }
+component AboutPage inherits Rectangle { Text { text: "About"; } }
+component HelpPage inherits Rectangle { Text { text: "Help"; } }
+
+export component MainWindow inherits Window {
+    title: "Wallpaper Manager";
+    preferred-width: 900px;
+    preferred-height: 700px;
+
+    in-out property <int> current-tab: 0;
+    callback tab-changed();
+    changed current-tab => { root.tab-changed(); }
+
+    // Changer settings (mirrored from/to the Changer tab)
+    in-out property <bool> changer-enabled: false;
+    in-out property <int> changer-interval: 30;
+    in-out property <int> changer-interval-unit: 1;
+    in-out property <int> changer-order: 0;
+    in-out property <[string]> changer-directories;
+    in-out property <bool> changer-all-monitors: true;
+    in property <string> changer-current;
+    in property <[ScreenInfo]> changer-screens;
+    in property <int> changer-screens-width: 1;
+    in property <int> changer-screens-height: 1;
+    callback changer-refresh-screens();
+
+    callback changer-change-now();
+    callback changer-settings-changed();
+    callback changer-add-directory();
+    callback changer-browse-directory(int);
+    callback changer-remove-directory(int);
+
+    TabWidget {
+        current-index <=> root.current-tab;
+
+        Tab { title: @tr("Providers"); ProvidersPage { } }
+        Tab { title: @tr("Settings"); SettingsPage { } }
+        Tab {
+            title: @tr("Changer");
+            ChangerPage {
+                auto-change <=> root.changer-enabled;
+                interval <=> root.changer-interval;
+                interval-unit <=> root.changer-interval-unit;
+                order-index <=> root.changer-order;
+                directories <=> root.changer-directories;
+                all-monitors <=> root.changer-all-monitors;
+                current-wallpaper: root.changer-current;
+
+                change-now => { root.changer-change-now(); }
+                settings-changed => { root.changer-settings-changed(); }
+                add-directory => { root.changer-add-directory(); }
+                browse-directory(i) => { root.changer-browse-directory(i); }
+                remove-directory(i) => { root.changer-remove-directory(i); }
+                screens: root.changer-screens;
+                screens-width: root.changer-screens-width;
+                screens-height: root.changer-screens-height;
+                refresh-screens => { root.changer-refresh-screens(); }
+            }
+        }
+        Tab { title: @tr("Downloads"); DownloadsPage { } }
+        Tab { title: @tr("Wallpapers"); WallpapersPage { } }
+        Tab { title: @tr("About"); AboutPage { } }
+        Tab { title: @tr("Help"); HelpPage { } }
+    }
+}
+
+export component AppTray inherits SystemTrayIcon {
+    in property <int> icon-size: 64;
+    icon: root.icon-size <= 16 ? @image-url("./images/wallpaper_icon_16.png")
+        : root.icon-size <= 24 ? @image-url("./images/wallpaper_icon_24.png")
+        : root.icon-size <= 32 ? @image-url("./images/wallpaper_icon_32.png")
+        : root.icon-size <= 64 ? @image-url("./images/wallpaper_icon_64.png")
+        : @image-url("./images/wallpaper_icon_128.png");
+    tooltip: "Wallpaper Manager";
+
+    callback tray-clicked();
+    callback open-tab(int);
+    callback change-now();
+    callback quit();
+
+    clicked => { root.tray-clicked(); }
+
+    Menu {
+        MenuItem { title: @tr("Open"); activated => { root.open-tab(-1); } }
+        MenuItem { title: @tr("Settings…"); activated => { root.open-tab(1); } }
+        MenuItem { title: @tr("Change Wallpaper Now"); activated => { root.change-now(); } }
+        MenuSeparator { }
+        MenuItem { title: @tr("Quit"); activated => { root.quit(); } }
+    }
+}

@@ -1,0 +1,201 @@
+import {
+    Button,
+    CheckBox,
+    ComboBox,
+    GroupBox,
+    HorizontalBox,
+    LineEdit,
+    Palette,
+    Switch,
+    SpinBox,
+    VerticalBox,
+} from "std-widgets.slint";
+
+export struct ScreenInfo {
+    name: string,
+    x: int,
+    y: int,
+    width: int,
+    height: int,
+    primary: bool,
+}
+
+component ScreenLayout inherits Rectangle {
+    in property <[ScreenInfo]> screens;
+    in property <int> total-width: 1;
+    in property <int> total-height: 1;
+
+    property <float> scale: min(
+        (root.width - 16px) / (max(root.total-width, 1) * 1px),
+        (root.height - 16px) / (max(root.total-height, 1) * 1px));
+    property <length> offset-x: (root.width - root.total-width * root.scale * 1px) / 2;
+    property <length> offset-y: (root.height - root.total-height * root.scale * 1px) / 2;
+
+    background: Palette.foreground.with-alpha(0.06);
+    border-radius: 6px;
+
+    for s in root.screens: Rectangle {
+        x: root.offset-x + s.x * root.scale * 1px;
+        y: root.offset-y + s.y * root.scale * 1px;
+        width: s.width * root.scale * 1px;
+        height: s.height * root.scale * 1px;
+        background: s.primary ? Palette.accent-background.with-alpha(0.35)
+            : Palette.foreground.with-alpha(0.12);
+        border-width: 1px;
+        border-color: s.primary ? Palette.accent-background : Palette.border;
+        border-radius: 3px;
+        clip: true;
+
+        Text {
+            text: s.name + "\n" + s.width + "×" + s.height + (s.primary ? "\nprimary" : "");
+            color: Palette.foreground;
+            font-size: 11px;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+    }
+}
+
+export component ChangerPage inherits Rectangle {
+    in-out property <bool> auto-change: false;
+    in-out property <int> interval: 30;
+    in-out property <int> interval-unit: 1;      // 0 = seconds, 1 = minutes, 2 = hours
+    in-out property <int> order-index: 0;        // 0 = Randomly, 1 = Oldest to newest, 2 = Newest to oldest
+    in-out property <[string]> directories;
+    in-out property <bool> all-monitors: true;
+    in property <string> current-wallpaper: @tr("None yet");
+    in property <[ScreenInfo]> screens;
+    in property <int> screens-width: 1;
+    in property <int> screens-height: 1;
+    callback refresh-screens();
+
+    callback change-now();
+    callback settings-changed();
+    callback add-directory();
+    callback browse-directory(int);
+    callback remove-directory(int);
+
+    changed auto-change => { root.settings-changed(); }
+    changed interval => { root.settings-changed(); }
+    changed interval-unit => { root.settings-changed(); }
+    changed order-index => { root.settings-changed(); }
+    changed all-monitors => { root.settings-changed(); }
+
+    VerticalBox {
+        alignment: start;
+
+        GroupBox {
+            title: @tr("Schedule");
+
+            VerticalBox {
+                Switch {
+                    text: @tr("Change wallpaper automatically");
+                    checked <=> root.auto-change;
+                }
+
+                HorizontalBox {
+                    Text {
+                        text: @tr("Every");
+                        vertical-alignment: center;
+                    }
+
+                    SpinBox {
+                        value <=> root.interval;
+                        minimum: 1;
+                        maximum: 9999;
+                        enabled: root.auto-change;
+                    }
+
+                    ComboBox {
+                        model: [@tr("Seconds"), @tr("Minutes"), @tr("Hours")];
+                        current-index <=> root.interval-unit;
+                        enabled: root.auto-change;
+                    }
+                }
+
+                HorizontalBox {
+                    Text {
+                        text: @tr("Order");
+                        vertical-alignment: center;
+                    }
+
+                    ComboBox {
+                        model: [@tr("Randomly"), @tr("Oldest to newest"), @tr("Newest to oldest")];
+                        current-index <=> root.order-index;
+                    }
+                }
+
+                CheckBox {
+                    text: @tr("Change on all monitors");
+                    checked <=> root.all-monitors;
+                }
+            }
+        }
+
+        GroupBox {
+            title: @tr("Wallpaper directories");
+
+            VerticalBox {
+                if root.directories.length == 0: Text {
+                    text: @tr("No directories added yet");
+                }
+                for dir[i] in root.directories: HorizontalBox {
+                    LineEdit {
+                        text: dir;
+                        read-only: true;
+                        horizontal-stretch: 1;
+                    }
+
+                    Button {
+                        text: @tr("Browse…");
+                        clicked => { root.browse-directory(i); }
+                    }
+
+                    Button {
+                        text: @tr("Remove");
+                        clicked => { root.remove-directory(i); }
+                    }
+                }
+                Button {
+                    text: @tr("Add directory…");
+                    clicked => { root.add-directory(); }
+                }
+            }
+        }
+
+        GroupBox {
+            title: @tr("Current wallpaper");
+
+            VerticalBox {
+                Text {
+                    text: root.current-wallpaper;
+                    wrap: word-wrap;
+                }
+
+                Button {
+                    text: @tr("Change Now");
+                    clicked => { root.change-now(); }
+                }
+            }
+        }
+
+        GroupBox {
+            title: @tr("Screen layout");
+
+            VerticalBox {
+                ScreenLayout {
+                    height: 160px;
+                    screens: root.screens;
+                    total-width: root.screens-width;
+                    total-height: root.screens-height;
+                }
+
+                Button {
+                    text: @tr("Refresh");
+                    clicked => { root.refresh-screens(); }
+                }
+            }
+        }
+    }
+}
