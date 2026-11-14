@@ -8,6 +8,7 @@ import {
     Switch,
     SpinBox,
     VerticalBox,
+    ScrollView,
 } from "std-widgets.slint";
 
 export struct ScreenInfo {
@@ -86,135 +87,137 @@ export component ChangerPage inherits Rectangle {
     changed order-index => { root.settings-changed(); }
     changed restore-on-start => { root.settings-changed(); }
 
-    VerticalBox {
-        alignment: start;
+    ScrollView {
+        VerticalBox {
+            alignment: start;
 
-        GroupBox {
-            title: @tr("Schedule");
+            GroupBox {
+                title: @tr("Schedule");
 
-            VerticalBox {
-                Switch {
-                    text: @tr("Change wallpaper automatically");
-                    checked <=> root.auto-change;
-                }
-
-                HorizontalBox {
-                    Text {
-                        text: @tr("Every");
-                        vertical-alignment: center;
+                VerticalBox {
+                    Switch {
+                        text: @tr("Change wallpaper automatically");
+                        checked <=> root.auto-change;
                     }
 
-                    SpinBox {
-                        value <=> root.interval;
-                        minimum: 1;
-                        maximum: 9999;
-                        enabled: root.auto-change;
+                    HorizontalBox {
+                        Text {
+                            text: @tr("Every");
+                            vertical-alignment: center;
+                        }
+
+                        SpinBox {
+                            value <=> root.interval;
+                            minimum: 1;
+                            maximum: 9999;
+                            enabled: root.auto-change;
+                        }
+
+                        ComboBox {
+                            model: [@tr("Seconds"), @tr("Minutes"), @tr("Hours")];
+                            current-index <=> root.interval-unit;
+                            enabled: root.auto-change;
+                        }
                     }
 
-                    ComboBox {
-                        model: [@tr("Seconds"), @tr("Minutes"), @tr("Hours")];
-                        current-index <=> root.interval-unit;
-                        enabled: root.auto-change;
-                    }
-                }
+                    HorizontalBox {
+                        Text {
+                            text: @tr("Order");
+                            vertical-alignment: center;
+                        }
 
-                HorizontalBox {
-                    Text {
-                        text: @tr("Order");
-                        vertical-alignment: center;
-                    }
-
-                    ComboBox {
-                        model: [@tr("Randomly"), @tr("Oldest to newest"), @tr("Newest to oldest")];
-                        current-index <=> root.order-index;
-                    }
-                }
-
-                HorizontalBox {
-                    Text {
-                        text: @tr("Monitors");
-                        vertical-alignment: center;
+                        ComboBox {
+                            model: [@tr("Randomly"), @tr("Oldest to newest"), @tr("Newest to oldest")];
+                            current-index <=> root.order-index;
+                        }
                     }
 
-                    ComboBox {
-                        model: [
-                            @tr("Primary monitor only"),
-                            @tr("Different image on each monitor"),
-                            @tr("Same image on all monitors"),
-                        ];
-                        current-index <=> root.monitor-mode;
-                        enabled: root.per-screen-supported;
+                    HorizontalBox {
+                        Text {
+                            text: @tr("Monitors");
+                            vertical-alignment: center;
+                        }
+
+                        ComboBox {
+                            model: [
+                                @tr("Primary monitor only"),
+                                @tr("Different image on each monitor"),
+                                @tr("Same image on all monitors"),
+                            ];
+                            current-index <=> root.monitor-mode;
+                            enabled: root.per-screen-supported;
+                        }
                     }
-                }
 
-                Switch {
-                    text: @tr("Restore the last wallpaper when the app starts");
-                    checked <=> root.restore-on-start;
-                }
+                    Switch {
+                        text: @tr("Restore the last wallpaper when the app starts");
+                        checked <=> root.restore-on-start;
+                    }
 
-                if !root.per-screen-supported: Text {
-                    text: @tr("This desktop can only set one wallpaper for all screens.");
-                    wrap: word-wrap;
+                    if !root.per-screen-supported: Text {
+                        text: @tr("This desktop can only set one wallpaper for all screens.");
+                        wrap: word-wrap;
+                    }
                 }
             }
-        }
 
-        GroupBox {
-            title: @tr("Wallpaper directories");
+            GroupBox {
+                title: @tr("Wallpaper directories");
 
-            VerticalBox {
-                if root.directories.length == 0: Text {
-                    text: @tr("No directories added yet");
-                }
-                for dir[i] in root.directories: HorizontalBox {
-                    LineEdit {
-                        text: dir;
-                        read-only: true;
-                        horizontal-stretch: 1;
+                VerticalBox {
+                    if root.directories.length == 0: Text {
+                        text: @tr("No directories added yet");
                     }
+                    for dir[i] in root.directories: HorizontalBox {
+                        LineEdit {
+                            text: dir;
+                            read-only: true;
+                            horizontal-stretch: 1;
+                        }
 
+                        Button {
+                            text: @tr("Browse…");
+                            clicked => { root.browse-directory(i); }
+                        }
+
+                        Button {
+                            text: @tr("Remove");
+                            clicked => { root.remove-directory(i); }
+                        }
+                    }
                     Button {
-                        text: @tr("Browse…");
-                        clicked => { root.browse-directory(i); }
+                        text: @tr("Add directory…");
+                        clicked => { root.add-directory(); }
                     }
-
-                    Button {
-                        text: @tr("Remove");
-                        clicked => { root.remove-directory(i); }
-                    }
-                }
-                Button {
-                    text: @tr("Add directory…");
-                    clicked => { root.add-directory(); }
                 }
             }
-        }
 
-        GroupBox {
-            title: @tr("Screens");
+            GroupBox {
+                title: @tr("Screens");
 
-            VerticalBox {
-                ScreenLayout {
-                    height: 110px;
-                    screens: root.screens;
-                    total-width: root.screens-width;
-                    total-height: root.screens-height;
-                }
-
-                if root.status != "": Text {
-                    text: root.status;
-                    wrap: word-wrap;
-                }
-                HorizontalBox {
-                    alignment: start;
-                    Button {
-                        text: @tr("Change Now");
-                        clicked => { root.change-now(); }
+                VerticalBox {
+                    ScreenLayout {
+                        height: 110px;
+                        screens: root.screens;
+                        total-width: root.screens-width;
+                        total-height: root.screens-height;
                     }
 
-                    Button {
-                        text: @tr("Refresh");
-                        clicked => { root.refresh-screens(); }
+                    if root.status != "": Text {
+                        text: root.status;
+                        wrap: word-wrap;
+                    }
+                    HorizontalBox {
+                        alignment: start;
+                        Button {
+                            text: @tr("Change Now");
+                            clicked => { root.change-now(); }
+                        }
+
+                        Button {
+                            text: @tr("Refresh");
+                            clicked => { root.refresh-screens(); }
+                        }
                     }
                 }
             }

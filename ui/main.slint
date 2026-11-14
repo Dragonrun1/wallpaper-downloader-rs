@@ -11,8 +11,10 @@ component HelpPage inherits Rectangle { Text { text: "Help"; } }
 
 export component MainWindow inherits Window {
     title: "Wallpaper Manager";
-    preferred-width: 900px;
-    preferred-height: 700px;
+    min-height: 480px;
+    min-width: 640px;
+    preferred-width: 800px;
+    preferred-height: 600px;
 
     in-out property <int> current-tab: 0;
 
