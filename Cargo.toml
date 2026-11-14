@@ -4,9 +4,14 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+directories = "6.0.0"
 display-info = "0.5.10"
 more-wallpapers = { version = "0.4.0", features = ["fallback"] }
-slint = "1.18.1"
+rfd = "0.18.0"
+serde = { version = "1.0.229", features = ["derive"] }
+slint = { version = "1.18.1", features = ["system-tray"] }
+toml = "1.2.1"
+fastrand = "2.5.0"
 
 [build-dependencies]
 slint-build = "1.18.1"
