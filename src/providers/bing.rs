@@ -2,7 +2,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use serde::Deserialize;
 
-use super::{Capabilities, Ctx, KeyUse, ProviderId, Source, Wallpaper};
+use super::{Capabilities, Ctx, KeyUse, ProviderId, ResolutionFilter, ResolutionPolicy, Source, Wallpaper};
 
 const ARCHIVE_URL: &str = "https://www.bing.com/HPImageArchive.aspx";
 const SITE: &str = "https://www.bing.com";
@@ -49,10 +49,7 @@ impl Source for Bing {
             .json()
             .await?;
 
-        let size = match ctx.min_resolution {
-            Some((w, _)) if w > 1920 => "UHD",
-            _ => "1920x1080",
-        };
+        let size = size_suffix(&ctx.resolution);
 
         Ok(archive
             .images
@@ -75,6 +72,20 @@ impl Source for Bing {
             })
             .collect())
     }
+}
+
+/// Bing serves a fixed set of sizes. Anything bigger than Full HD gets UHD
+/// (3840×2160); an exact policy asks for that exact size, which Bing may not have.
+fn size_suffix(filter: &ResolutionFilter) -> String {
+    let Some(t) = filter.largest() else { return "1920x1080".to_owned() };
+    if filter.policy == ResolutionPolicy::Exact {
+        return if (t.width, t.height) == (3840, 2160) {
+            "UHD".to_owned()
+        } else {
+            format!("{}x{}", t.width, t.height)
+        };
+    }
+    if t.width > 1920 || t.height > 1080 { "UHD" } else { "1920x1080" }.to_owned()
 }
 
 /// The configured market, else the system locale (e.g. "de-DE"), else "en-US".
@@ -113,6 +124,18 @@ mod tests {
     fn image_id_handles_both_url_styles() {
         assert_eq!(image_id("/th?id=OHR.Grand_EN-US845"), "OHR.Grand_EN-US845");
         assert_eq!(image_id("/az/hprichbg/rb/Sibelius_ZH-CN890"), "Sibelius_ZH-CN890");
+    }
+
+    #[test]
+    fn size_suffix_choices() {
+        use crate::providers::Resolution;
+        let f = |policy, w, h| ResolutionFilter { policy, targets: vec![Resolution::new(w, h)] };
+
+        assert_eq!(size_suffix(&f(ResolutionPolicy::AtLeast, 1920, 1080)), "1920x1080");
+        assert_eq!(size_suffix(&f(ResolutionPolicy::AtLeast, 1920, 1200)), "UHD");
+        assert_eq!(size_suffix(&f(ResolutionPolicy::AtLeast, 2560, 1440)), "UHD");
+        assert_eq!(size_suffix(&f(ResolutionPolicy::Exact, 1366, 768)), "1366x768");
+        assert_eq!(size_suffix(&f(ResolutionPolicy::Exact, 3840, 2160)), "UHD");
     }
 
     #[test]

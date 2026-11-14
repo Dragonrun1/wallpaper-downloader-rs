@@ -10,6 +10,7 @@ use std::collections::BTreeMap;
 
 use anyhow::Result;
 use async_trait::async_trait;
+use display_info::DisplayInfo;
 use serde::{Deserialize, Serialize};
 
 use crate::config::default_wallpaper_dir;
@@ -83,6 +84,89 @@ pub struct Capabilities {
     pub purity: bool,
 }
 
+// ─── Resolution ─────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Resolution {
+    pub width: u32,
+    pub height: u32,
+}
+
+impl Resolution {
+    pub fn new(width: u32, height: u32) -> Self {
+        Self { width, height }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ResolutionPolicy {
+    /// Don't care about size.
+    Any,
+    /// Big enough for at least one of the target resolutions.
+    AtLeast,
+    /// Exactly one of the target resolutions.
+    Exact,
+}
+
+/// The sizes of the connected screens (one entry per distinct size).
+/// Falls back to 1920×1080 if they can't be read.
+pub fn detect_screens() -> Vec<Resolution> {
+    let mut found: Vec<Resolution> = Vec::new();
+    for d in DisplayInfo::all().unwrap_or_default() {
+        let r = Resolution::new(d.width, d.height);
+        if !found.contains(&r) {
+            found.push(r);
+        }
+    }
+    if found.is_empty() {
+        found.push(Resolution::new(1920, 1080));
+    }
+    found
+}
+
+/// Which image sizes we want. The targets start out as the connected screens
+/// and can be edited freely afterwards.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ResolutionFilter {
+    pub policy: ResolutionPolicy,
+    pub targets: Vec<Resolution>,
+}
+
+impl Default for ResolutionFilter {
+    fn default() -> Self {
+        Self { policy: ResolutionPolicy::AtLeast, targets: detect_screens() }
+    }
+}
+
+impl ResolutionFilter {
+    /// Does an image of this size satisfy the filter?
+    pub fn accepts(&self, width: u32, height: u32) -> bool {
+        if self.policy == ResolutionPolicy::Any || self.targets.is_empty() {
+            return true;
+        }
+        self.targets.iter().any(|t| match self.policy {
+            ResolutionPolicy::Exact => width == t.width && height == t.height,
+            _ => width >= t.width && height >= t.height,
+        })
+    }
+
+    /// The loosest lower bound covering every target (smallest width and
+    /// smallest height). It's what we ask a provider's search for; `accepts`
+    /// then does the strict check.
+    pub fn minimum(&self) -> Option<Resolution> {
+        let width = self.targets.iter().map(|t| t.width).min()?;
+        let height = self.targets.iter().map(|t| t.height).min()?;
+        Some(Resolution::new(width, height))
+    }
+
+    /// The target with the most pixels.
+    pub fn largest(&self) -> Option<Resolution> {
+        self.targets.iter().copied().max_by_key(|t| u64::from(t.width) * u64::from(t.height))
+    }
+}
+
 /// Everything we know about one image. Optional wherever a source can't say.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Wallpaper {
@@ -144,9 +228,10 @@ pub struct ProvidersConfig {
     /// The app's own downloads may use at most this many MB; the oldest
     /// non-favorites are deleted past that. 0 means unlimited.
     pub max_folder_size_mb: u64,
-    /// Shared by every provider that supports searching. Separate several
-    /// with `;` and one is picked at random for each run.
-    pub keywords: String,
+    pub resolution: ResolutionFilter,
+    /// Shared by every provider that supports searching. One is picked at
+    /// random for each run; empty means no keyword.
+    pub keywords: Vec<String>,
     /// Images with a tag containing any of these (case-insensitive) are skipped.
     pub forbidden_tags: Vec<String>,
     /// Keyed by `ProviderId::key()`.
@@ -169,7 +254,8 @@ impl Default for ProvidersConfig {
                 .and_then(|p| p.to_str().map(str::to_owned))
                 .unwrap_or_default(),
             max_folder_size_mb: 256,
-            keywords: String::new(),
+            resolution: ResolutionFilter::default(),
+            keywords: Vec::new(),
             forbidden_tags: Vec::new(),
             settings,
         }
@@ -194,9 +280,9 @@ impl ProvidersConfig {
 /// What a provider needs to do its job.
 pub struct Ctx {
     pub client: reqwest::Client,
+    /// The keyword chosen for this run (empty = none).
     pub keywords: String,
-    /// Prefer images at least this big (the largest connected screen).
-    pub min_resolution: Option<(u32, u32)>,
+    pub resolution: ResolutionFilter,
     pub settings: ProviderSettings,
 }
 
@@ -212,5 +298,70 @@ pub trait Source: Send + Sync {
     /// for candidates that aren't already in the library.
     async fn details(&self, _ctx: &Ctx, wallpaper: Wallpaper) -> Result<Wallpaper> {
         Ok(wallpaper)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn filter(policy: ResolutionPolicy, targets: &[(u32, u32)]) -> ResolutionFilter {
+        ResolutionFilter {
+            policy,
+            targets: targets.iter().map(|&(w, h)| Resolution::new(w, h)).collect(),
+        }
+    }
+
+    #[test]
+    fn at_least_accepts_anything_big_enough_for_one_target() {
+        let f = filter(ResolutionPolicy::AtLeast, &[(1920, 1080), (1080, 1920)]);
+        assert!(f.accepts(2560, 1440)); // fits the landscape screen
+        assert!(f.accepts(1080, 1920)); // fits the portrait screen
+        assert!(!f.accepts(1280, 720));
+        assert!(!f.accepts(1000, 3000)); // too narrow for either
+    }
+
+    #[test]
+    fn exact_needs_a_matching_size() {
+        let f = filter(ResolutionPolicy::Exact, &[(1920, 1080)]);
+        assert!(f.accepts(1920, 1080));
+        assert!(!f.accepts(2560, 1440));
+    }
+
+    #[test]
+    fn any_and_empty_targets_accept_everything() {
+        assert!(filter(ResolutionPolicy::Any, &[(1920, 1080)]).accepts(10, 10));
+        assert!(filter(ResolutionPolicy::Exact, &[]).accepts(10, 10));
+    }
+
+    #[test]
+    fn minimum_and_largest() {
+        let f = filter(ResolutionPolicy::AtLeast, &[(3840, 2160), (1920, 1200), (1080, 1920)]);
+        assert_eq!(f.minimum(), Some(Resolution::new(1080, 1200)));
+        assert_eq!(f.largest(), Some(Resolution::new(3840, 2160)));
+        assert_eq!(filter(ResolutionPolicy::AtLeast, &[]).minimum(), None);
+    }
+
+    #[test]
+    fn config_round_trips_through_toml() {
+        let mut cfg = ProvidersConfig::default();
+        cfg.keywords = vec!["mountains".into(), "ocean".into()];
+        cfg.forbidden_tags = vec!["people".into()];
+        cfg.resolution = filter(ResolutionPolicy::Exact, &[(1920, 1080), (2560, 1440)]);
+        cfg.settings.get_mut("wallhaven").unwrap().sort = Some(Sort::Newest);
+
+        let text = toml::to_string_pretty(&cfg).unwrap();
+        println!("{text}");
+        let back: ProvidersConfig = toml::from_str(&text).unwrap();
+        assert_eq!(back.keywords, cfg.keywords);
+        assert_eq!(back.resolution.targets, cfg.resolution.targets);
+        assert_eq!(back.resolution.policy, ResolutionPolicy::Exact);
+        assert_eq!(back.settings_for(ProviderId::Wallhaven).sort, Some(Sort::Newest));
+        assert_eq!(back.enabled(), vec![ProviderId::Wallhaven]);
+    }
+
+    #[test]
+    fn detected_screens_are_never_empty() {
+        assert!(!detect_screens().is_empty());
     }
 }

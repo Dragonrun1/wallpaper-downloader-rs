@@ -8,7 +8,6 @@ use std::{
 };
 
 use anyhow::{anyhow, bail, Context, Result};
-use display_info::DisplayInfo;
 use tokio::task::JoinSet;
 
 use super::{Ctx, ProviderId, ProvidersConfig, Source, Wallpaper};
@@ -41,7 +40,6 @@ pub async fn harvest_all(
     if cfg.download_dir.is_empty() {
         bail!("No download directory configured");
     }
-    let resolution = Some(largest_screen());
     let keyword = pick_keyword(&cfg.keywords);
 
     let mut set = JoinSet::new();
@@ -49,7 +47,7 @@ pub async fn harvest_all(
         let ctx = Ctx {
             client: client.clone(),
             keywords: keyword.clone(),
-            min_resolution: resolution,
+            resolution: cfg.resolution.clone(),
             settings: cfg.settings_for(id),
         };
         let (library, dir, forbidden) = (library.clone(), dir.clone(), cfg.forbidden_tags.clone());
@@ -102,6 +100,7 @@ pub async fn harvest_one(
     for candidate in candidates {
         if library.lock().unwrap().contains(provider, &candidate.id)
             || has_forbidden_tag(&candidate.tags, forbidden)
+            || !size_fits(&ctx.resolution, &candidate)
         {
             continue;
         }
@@ -148,6 +147,9 @@ async fn download(ctx: &Ctx, wallpaper: &Wallpaper, dir: &Path) -> Result<Entry>
     // rejects HTML error pages that came back with a 200.
     let size = imagesize::blob_size(&bytes)
         .map_err(|e| anyhow!("downloaded data is not a readable image: {e}"))?;
+    if !ctx.resolution.accepts(size.width as u32, size.height as u32) {
+        bail!("image is {}x{}, which doesn't fit the resolution settings", size.width, size.height);
+    }
     let ext = match imagesize::image_type(&bytes) {
         Ok(imagesize::ImageType::Jpeg) => "jpg",
         Ok(imagesize::ImageType::Png) => "png",
@@ -168,13 +170,22 @@ async fn download(ctx: &Ctx, wallpaper: &Wallpaper, dir: &Path) -> Result<Entry>
     Ok(Entry { wallpaper, file, added: now_secs(), favorite: false, blocked: false })
 }
 
-/// Keywords are separated by `;`. One is chosen at random for each run, and
-/// empty means "no keyword" (search everything).
-fn pick_keyword(keywords: &str) -> String {
-    let list: Vec<&str> = keywords.split(';').map(str::trim).filter(|k| !k.is_empty()).collect();
+/// One keyword chosen at random for each run; empty means "no keyword"
+/// (search everything).
+fn pick_keyword(keywords: &[String]) -> String {
+    let list: Vec<&str> = keywords.iter().map(|k| k.trim()).filter(|k| !k.is_empty()).collect();
     match list.len() {
         0 => String::new(),
         n => list[fastrand::usize(..n)].to_owned(),
+    }
+}
+
+/// Skip candidates whose size is already known to be wrong, before spending
+/// any requests on them. Unknown sizes pass; the download is checked again.
+fn size_fits(filter: &super::ResolutionFilter, candidate: &Wallpaper) -> bool {
+    match (candidate.width, candidate.height) {
+        (Some(w), Some(h)) => filter.accepts(w, h),
+        _ => true,
     }
 }
 
@@ -194,14 +205,6 @@ fn sanitize(id: &str) -> String {
 
 fn now_secs() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs())
-}
-
-/// Biggest connected screen, so we ask providers for images that fit it.
-fn largest_screen() -> (u32, u32) {
-    DisplayInfo::all()
-        .ok()
-        .and_then(|d| Some((d.iter().map(|d| d.width).max()?, d.iter().map(|d| d.height).max()?)))
-        .unwrap_or((1920, 1080))
 }
 
 #[cfg(test)]
@@ -242,10 +245,11 @@ mod tests {
 
     #[test]
     fn keyword_picking() {
-        assert_eq!(pick_keyword(""), "");
-        assert_eq!(pick_keyword(" ; ;"), "");
-        assert_eq!(pick_keyword(" mountains "), "mountains");
-        let picked = pick_keyword("a; b ;c");
+        let list = |items: &[&str]| items.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert_eq!(pick_keyword(&[]), "");
+        assert_eq!(pick_keyword(&list(&["", "  "])), "");
+        assert_eq!(pick_keyword(&list(&[" mountains "])), "mountains");
+        let picked = pick_keyword(&list(&["a", "b", "c"]));
         assert!(["a", "b", "c"].contains(&picked.as_str()));
     }
 
