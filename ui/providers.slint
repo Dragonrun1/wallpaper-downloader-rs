@@ -1,0 +1,393 @@
+import { Button, CheckBox, ComboBox, GroupBox, HorizontalBox, LineEdit, ScrollView, SpinBox, Switch, VerticalBox } from "std-widgets.slint";
+
+export struct TargetSize {
+    width: int,
+    height: int,
+}
+
+export struct ProviderCard {
+    key: string,
+    name: string,
+    enabled: bool,
+    own-interval: bool,
+    every: int,
+    unit: int,              // 0 = minutes, 1 = hours, 2 = days
+    min-interval: string,
+    sort-options: [string], // empty = this provider has no sort setting
+    sort-index: int,        // 0 = provider default
+    has-key: bool,
+    api-key: string,
+    has-market: bool,
+    market: string,
+    has-purity: bool,
+    allow-sketchy: bool,
+    allow-nsfw: bool,
+    note: string,
+    status: string,
+}
+
+// Everything the Providers tab shows or does. The host fills the models and
+// handles the callbacks.
+export global ProvidersState {
+    in-out property <bool> schedule-enabled: true;
+    in-out property <int> schedule-every: 6;
+    in-out property <int> schedule-unit: 1;          // 0 = minutes, 1 = hours, 2 = days
+    in property <[string]> keywords;
+    in property <[string]> forbidden-tags;
+    in-out property <int> resolution-policy: 1;      // 0 = any, 1 = at least, 2 = exact
+    in property <[TargetSize]> targets;
+    in-out property <string> download-dir;
+    in-out property <int> max-size-mb: 256;
+    in property <[ProviderCard]> providers;          // already in alphabetical order
+    in property <string> run-status;
+    in property <bool> busy;
+
+    callback changed();
+    callback download-now();
+    callback add-keyword(string);
+    callback remove-keyword(int);
+    callback add-forbidden(string);
+    callback remove-forbidden(int);
+    callback add-target();
+    callback edit-target(int, int, int);
+    callback remove-target(int);
+    callback reset-targets();
+    callback browse-download-dir();
+    callback card-bool(int, string, bool);
+    callback card-int(int, string, int);
+    callback card-text(int, string, string);
+}
+
+component Hint inherits Text {
+    font-size: 11px;
+    opacity: 0.7;
+    wrap: word-wrap;
+}
+
+// A list of strings with a remove button per row and an input to add more.
+component StringListEditor inherits VerticalLayout {
+    in property <[string]> items;
+    in property <string> placeholder;
+    callback added(string);
+    callback removed(int);
+
+    spacing: 6px;
+
+    for item[i] in root.items : HorizontalLayout {
+        spacing: 6px;
+        Text {
+            text: item;
+            vertical-alignment: center;
+            overflow: elide;
+            horizontal-stretch: 1;
+        }
+        Button {
+            text: @tr("Remove");
+            clicked => { root.removed(i); }
+        }
+    }
+    HorizontalLayout {
+        spacing: 6px;
+        input := LineEdit {
+            placeholder-text: root.placeholder;
+            horizontal-stretch: 1;
+            accepted(text) => {
+                root.added(text);
+                self.text = "";
+            }
+        }
+        Button {
+            text: @tr("Add");
+            enabled: input.text != "";
+            clicked => {
+                root.added(input.text);
+                input.text = "";
+            }
+        }
+    }
+}
+
+component ProviderCardView inherits VerticalLayout {
+    in property <int> index;
+    in property <ProviderCard> card;
+
+    GroupBox {
+        title: root.card.name;
+
+        VerticalBox {
+            Switch {
+                text: @tr("Enabled");
+                checked: root.card.enabled;
+                toggled => { ProvidersState.card-bool(root.index, "enabled", self.checked); }
+            }
+            HorizontalBox {
+                CheckBox {
+                    text: @tr("Own interval");
+                    checked: root.card.own-interval;
+                    toggled => { ProvidersState.card-bool(root.index, "own-interval", self.checked); }
+                }
+                SpinBox {
+                    value: root.card.every;
+                    minimum: 1;
+                    maximum: 9999;
+                    enabled: root.card.own-interval;
+                    edited(v) => { ProvidersState.card-int(root.index, "every", v); }
+                }
+                ComboBox {
+                    model: [@tr("Minutes"), @tr("Hours"), @tr("Days")];
+                    current-index: root.card.unit;
+                    enabled: root.card.own-interval;
+                    selected(v) => { ProvidersState.card-int(root.index, "unit", self.current-index); }
+                }
+                Text {
+                    text: root.card.min-interval;
+                    vertical-alignment: center;
+                    opacity: 0.7;
+                }
+            }
+            if root.card.sort-options.length > 0 : HorizontalBox {
+                Text {
+                    text: @tr("Sort");
+                    vertical-alignment: center;
+                }
+                ComboBox {
+                    model: root.card.sort-options;
+                    current-index: root.card.sort-index;
+                    selected(v) => { ProvidersState.card-int(root.index, "sort", self.current-index); }
+                }
+            }
+            if root.card.has-key : HorizontalBox {
+                Text {
+                    text: @tr("API key");
+                    vertical-alignment: center;
+                }
+                LineEdit {
+                    text: root.card.api-key;
+                    placeholder-text: @tr("Optional");
+                    horizontal-stretch: 1;
+                    edited(t) => { ProvidersState.card-text(root.index, "api-key", t); }
+                }
+            }
+            if root.card.has-market : HorizontalBox {
+                Text {
+                    text: @tr("Market");
+                    vertical-alignment: center;
+                }
+                LineEdit {
+                    text: root.card.market;
+                    placeholder-text: @tr("System locale, e.g. en-US");
+                    horizontal-stretch: 1;
+                    edited(t) => { ProvidersState.card-text(root.index, "market", t); }
+                }
+            }
+            if root.card.has-purity : HorizontalBox {
+                CheckBox {
+                    text: @tr("Include sketchy");
+                    checked: root.card.allow-sketchy;
+                    toggled => { ProvidersState.card-bool(root.index, "allow-sketchy", self.checked); }
+                }
+                CheckBox {
+                    text: @tr("Include NSFW (needs an API key)");
+                    checked: root.card.allow-nsfw;
+                    toggled => { ProvidersState.card-bool(root.index, "allow-nsfw", self.checked); }
+                }
+            }
+            if root.card.note != "" : Hint {
+                text: root.card.note;
+            }
+            Hint {
+                text: root.card.status;
+            }
+        }
+    }
+}
+
+export component ProvidersPage inherits Rectangle {
+    ScrollView {
+        VerticalBox {
+            alignment: start;
+
+            GroupBox {
+                title: @tr("Schedule");
+
+                VerticalBox {
+                    Switch {
+                        text: @tr("Check providers automatically");
+                        checked <=> ProvidersState.schedule-enabled;
+                        toggled => { ProvidersState.changed(); }
+                    }
+                    HorizontalBox {
+                        Text {
+                            text: @tr("Every");
+                            vertical-alignment: center;
+                        }
+                        SpinBox {
+                            value <=> ProvidersState.schedule-every;
+                            minimum: 1;
+                            maximum: 9999;
+                            enabled: ProvidersState.schedule-enabled;
+                            edited(v) => { ProvidersState.changed(); }
+                        }
+                        ComboBox {
+                            model: [@tr("Minutes"), @tr("Hours"), @tr("Days")];
+                            current-index <=> ProvidersState.schedule-unit;
+                            enabled: ProvidersState.schedule-enabled;
+                            selected(v) => { ProvidersState.changed(); }
+                        }
+                    }
+                    Hint {
+                        text: @tr("Each provider also has a minimum gap that this can't go below.");
+                    }
+                    HorizontalBox {
+                        alignment: start;
+                        Button {
+                            text: ProvidersState.busy ? @tr("Checking…") : @tr("Download now");
+                            enabled: !ProvidersState.busy;
+                            clicked => { ProvidersState.download-now(); }
+                        }
+                    }
+                    if ProvidersState.run-status != "" : Hint {
+                        text: ProvidersState.run-status;
+                    }
+                }
+            }
+
+            GroupBox {
+                title: @tr("Keywords");
+
+                VerticalBox {
+                    StringListEditor {
+                        items: ProvidersState.keywords;
+                        placeholder: @tr("Add a keyword");
+                        added(t) => { ProvidersState.add-keyword(t); }
+                        removed(i) => { ProvidersState.remove-keyword(i); }
+                    }
+                    Hint {
+                        text: @tr("One is picked at random for each check. With none, everything is searched.");
+                    }
+                }
+            }
+
+            GroupBox {
+                title: @tr("Forbidden tags");
+
+                VerticalBox {
+                    StringListEditor {
+                        items: ProvidersState.forbidden-tags;
+                        placeholder: @tr("Add a tag to avoid");
+                        added(t) => { ProvidersState.add-forbidden(t); }
+                        removed(i) => { ProvidersState.remove-forbidden(i); }
+                    }
+                    Hint {
+                        text: @tr("Images with a tag containing any of these are skipped.");
+                    }
+                }
+            }
+
+            GroupBox {
+                title: @tr("Image size");
+
+                VerticalBox {
+                    HorizontalBox {
+                        Text {
+                            text: @tr("Accept");
+                            vertical-alignment: center;
+                        }
+                        ComboBox {
+                            model: [@tr("Any size"), @tr("At least a target size"), @tr("Exactly a target size")];
+                            current-index <=> ProvidersState.resolution-policy;
+                            selected(v) => { ProvidersState.changed(); }
+                        }
+                    }
+                    if ProvidersState.resolution-policy != 0 : VerticalBox {
+                        for target[i] in ProvidersState.targets : HorizontalBox {
+                            SpinBox {
+                                value: target.width;
+                                minimum: 1;
+                                maximum: 16384;
+                                edited(v) => { ProvidersState.edit-target(i, v, target.height); }
+                            }
+                            Text {
+                                text: "×";
+                                vertical-alignment: center;
+                            }
+                            SpinBox {
+                                value: target.height;
+                                minimum: 1;
+                                maximum: 16384;
+                                edited(v) => { ProvidersState.edit-target(i, target.width, v); }
+                            }
+                            Button {
+                                text: @tr("Remove");
+                                clicked => { ProvidersState.remove-target(i); }
+                            }
+                        }
+                        HorizontalBox {
+                            alignment: start;
+                            Button {
+                                text: @tr("Add size");
+                                clicked => { ProvidersState.add-target(); }
+                            }
+                            Button {
+                                text: @tr("Reset from screens");
+                                clicked => { ProvidersState.reset-targets(); }
+                            }
+                        }
+                    }
+                }
+            }
+
+            GroupBox {
+                title: @tr("Storage");
+
+                VerticalBox {
+                    HorizontalBox {
+                        Text {
+                            text: @tr("Download folder");
+                            vertical-alignment: center;
+                        }
+                        LineEdit {
+                            text: ProvidersState.download-dir;
+                            read-only: true;
+                            horizontal-stretch: 1;
+                        }
+                        Button {
+                            text: @tr("Browse…");
+                            clicked => { ProvidersState.browse-download-dir(); }
+                        }
+                    }
+                    HorizontalBox {
+                        alignment: start;
+                        Text {
+                            text: @tr("Keep downloads under");
+                            vertical-alignment: center;
+                        }
+                        SpinBox {
+                            value <=> ProvidersState.max-size-mb;
+                            minimum: 0;
+                            maximum: 1048576;
+                            edited(v) => { ProvidersState.changed(); }
+                        }
+                        Text {
+                            text: @tr("MB (0 = no limit)");
+                            vertical-alignment: center;
+                        }
+                    }
+                    Hint {
+                        text: @tr("Past the limit, the oldest downloads are deleted. Favorites and files you added yourself are never touched.");
+                    }
+                }
+            }
+
+            Text {
+                text: @tr("Providers");
+                font-size: 16px;
+                font-weight: 700;
+            }
+            for card[i] in ProvidersState.providers : ProviderCardView {
+                index: i;
+                card: card;
+            }
+        }
+    }
+}

@@ -10,7 +10,7 @@ use crate::{
     changer,
     config::Config,
     providers::ProvidersConfig,
-    MainWindow
+    providers_tab, MainWindow,
 };
 
 const SAVE_DELAY: Duration = Duration::from_secs(10);
@@ -36,17 +36,11 @@ impl Saver {
         })
     }
 
-    /// Save now if anything is pending.
-    pub fn flush(&self) {
-        if !self.dirty.replace(false) {
-            return;
-        }
-        let Some(window) = self.window.upgrade() else { return };
-        let mut cfg = self.cfg.borrow_mut();
-        cfg.changer = changer::read_config(&window);
-        if let Err(e) = cfg.save() {
-            eprintln!("Could not save config: {e}");
-            self.dirty.set(true); // retry on the next flush
+    /// The providers settings as they are on screen right now.
+    pub fn providers(&self) -> ProvidersConfig {
+        match self.window.upgrade() {
+            Some(w) => providers_tab::read_config(&w),
+            None => self.cfg.borrow().providers.clone(),
         }
     }
 
@@ -61,7 +55,22 @@ impl Saver {
         });
     }
 
-    pub fn providers(&self) -> ProvidersConfig {
-        self.cfg.borrow().providers.clone()
+    /// Save now if anything is pending.
+    pub fn flush(&self) {
+        if !self.dirty.replace(false) {
+            return;
+        }
+        let Some(window) = self.window.upgrade() else { return };
+        let mut cfg = self.cfg.borrow_mut();
+        // Every tab copies its current UI state into the config here
+        cfg.changer = changer::read_config(&window);
+        cfg.providers = providers_tab::read_config(&window);
+        match cfg.save() {
+            Ok(()) => eprintln!("Config saved"),
+            Err(e) => {
+                eprintln!("Could not save config: {e}");
+                self.dirty.set(true); // retry on the next flush
+            }
+        }
     }
 }

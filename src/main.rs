@@ -11,6 +11,7 @@ mod screens;
 mod state;
 mod tray;
 mod wallpaper;
+pub mod providers_tab;
 
 use config::Config;
 use saver::Saver;
@@ -23,12 +24,14 @@ fn main() -> Result<(), slint::PlatformError> {
 
     let cfg = Config::load();
     let changer_cfg = cfg.changer.clone();
+    let providers_cfg = cfg.providers.clone();
     let saver = Saver::new(&window, cfg);
 
     tray::setup(&tray, &window);
     let screens = screens::Screens::new(&window);
     changer::setup(&window, &tray, &saver, &screens, &changer_cfg);
-    let _background = background::setup(&tray, &saver);
+    providers_tab::setup(&window, &saver, &providers_cfg);
+    let _background = background::setup(&window, &tray, &saver);
     let _minimize_watcher = lifecycle::install(&window, &saver);
 
     window.show()?;

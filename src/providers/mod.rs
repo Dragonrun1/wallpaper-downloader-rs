@@ -38,6 +38,10 @@ impl ProviderId {
         }
     }
 
+    pub fn from_key(key: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|id| id.key() == key)
+    }
+
     pub fn label(self) -> &'static str {
         match self {
             Self::Wallhaven => "Wallhaven",
@@ -66,6 +70,19 @@ pub enum Sort {
     Views,
     Favorites,
     Random,
+}
+
+impl Sort {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Relevance => "Relevance",
+            Self::Newest => "Newest",
+            Self::Top => "Top rated",
+            Self::Views => "Most viewed",
+            Self::Favorites => "Most favorited",
+            Self::Random => "Random",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -110,6 +127,25 @@ pub enum ResolutionPolicy {
     AtLeast,
     /// Exactly one of the target resolutions.
     Exact,
+}
+
+impl ResolutionPolicy {
+    /// Matches the order of the policy drop-down in the UI.
+    pub fn index(self) -> i32 {
+        match self {
+            Self::Any => 0,
+            Self::AtLeast => 1,
+            Self::Exact => 2,
+        }
+    }
+
+    pub fn from_index(i: i32) -> Self {
+        match i {
+            0 => Self::Any,
+            2 => Self::Exact,
+            _ => Self::AtLeast,
+        }
+    }
 }
 
 /// The sizes of the connected screens (one entry per distinct size).
@@ -374,6 +410,17 @@ mod tests {
         assert_eq!(back.enabled(), vec![ProviderId::Wallhaven]);
         assert_eq!(back.settings_for(ProviderId::Bing).interval, cfg.settings_for(ProviderId::Bing).interval);
         assert_eq!(back.schedule.interval, cfg.schedule.interval);
+    }
+
+    #[test]
+    fn ui_indices_and_keys() {
+        for policy in [ResolutionPolicy::Any, ResolutionPolicy::AtLeast, ResolutionPolicy::Exact] {
+            assert_eq!(ResolutionPolicy::from_index(policy.index()), policy);
+        }
+        for id in ProviderId::ALL {
+            assert_eq!(ProviderId::from_key(id.key()), Some(id));
+        }
+        assert_eq!(ProviderId::from_key("nope"), None);
     }
 
     #[test]

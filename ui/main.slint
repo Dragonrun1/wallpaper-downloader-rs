@@ -1,8 +1,9 @@
-import { TabWidget } from "std-widgets.slint";
 import { ChangerPage, ScreenInfo } from "changer.slint";
-export {ScreenInfo } from "changer.slint";
+import { ProvidersPage } from "providers.slint";
+import { TabWidget } from "std-widgets.slint";
+export { ProvidersState, ProviderCard, TargetSize } from "providers.slint";
+export { ScreenInfo } from "changer.slint";
 
-component ProvidersPage inherits Rectangle { Text { text: "Providers"; } }
 component SettingsPage inherits Rectangle { Text { text: "Settings"; } }
 component DownloadsPage inherits Rectangle { Text { text: "Downloads"; } }
 component WallpapersPage inherits Rectangle { Text { text: "Wallpapers"; } }

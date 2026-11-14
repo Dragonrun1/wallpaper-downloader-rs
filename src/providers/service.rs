@@ -15,7 +15,7 @@ use tokio::runtime::Runtime;
 
 use super::{
     harvest::{harvest, HarvestReport},
-    schedule::{self, now_secs, Check, Runs, Trigger},
+    schedule::{self, fmt_duration, now_secs, Check, Runs, Trigger},
     storage::MB,
     ProviderId, ProvidersConfig,
 };
@@ -86,6 +86,11 @@ impl Service {
             runs: Arc::new(Mutex::new(runs)),
             busy: Arc::new(AtomicBool::new(false)),
         })
+    }
+
+    /// Shared with background tasks so the UI can describe each provider's status.
+    pub fn runs(&self) -> Arc<Mutex<Runs>> {
+        self.runs.clone()
     }
 
     /// One line per enabled provider: its schedule and when it is next due.
@@ -219,20 +224,6 @@ pub fn fmt_size(bytes: u64) -> String {
     format!("{:.1} MB", bytes as f64 / MB as f64)
 }
 
-/// "45s", "10m", "3h 12m", "1d 2h".
-pub fn fmt_duration(d: Duration) -> String {
-    let secs = d.as_secs();
-    let (days, hours, mins) = (secs / 86_400, secs % 86_400 / 3600, secs % 3600 / 60);
-    match (days, hours, mins) {
-        (0, 0, 0) => format!("{secs}s"),
-        (0, 0, m) => format!("{m}m"),
-        (0, h, 0) => format!("{h}h"),
-        (0, h, m) => format!("{h}h {m}m"),
-        (d, 0, _) => format!("{d}d"),
-        (d, h, _) => format!("{d}d {h}h"),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -243,17 +234,6 @@ mod tests {
 
     fn service() -> Service {
         Service::with_parts(Library::default(), Runs::default()).unwrap()
-    }
-
-    #[test]
-    fn durations_read_naturally() {
-        let secs = Duration::from_secs;
-        assert_eq!(fmt_duration(secs(45)), "45s");
-        assert_eq!(fmt_duration(secs(600)), "10m");
-        assert_eq!(fmt_duration(secs(6 * 3600)), "6h");
-        assert_eq!(fmt_duration(secs(3 * 3600 + 12 * 60 + 40)), "3h 12m");
-        assert_eq!(fmt_duration(secs(26 * 3600)), "1d 2h");
-        assert_eq!(fmt_duration(secs(2 * 86_400)), "2d");
     }
 
     #[test]

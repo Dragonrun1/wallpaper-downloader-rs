@@ -20,6 +20,20 @@ pub fn now_secs() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs())
 }
 
+/// "45s", "10m", "3h 12m", "1d 2h".
+pub fn fmt_duration(d: Duration) -> String {
+    let secs = d.as_secs();
+    let (days, hours, mins) = (secs / 86_400, secs % 86_400 / 3600, secs % 3600 / 60);
+    match (days, hours, mins) {
+        (0, 0, 0) => format!("{secs}s"),
+        (0, 0, m) => format!("{m}m"),
+        (0, h, 0) => format!("{h}h"),
+        (0, h, m) => format!("{h}h {m}m"),
+        (d, 0, _) => format!("{d}d"),
+        (d, h, _) => format!("{d}d {h}h"),
+    }
+}
+
 // ─── Settings ───────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -34,6 +48,25 @@ pub enum Unit {
 pub struct Interval {
     pub every: u32,
     pub unit: Unit,
+}
+
+impl Unit {
+    /// Matches the order of the unit drop-down in the UI.
+    pub fn index(self) -> i32 {
+        match self {
+            Self::Minutes => 0,
+            Self::Hours => 1,
+            Self::Days => 2,
+        }
+    }
+
+    pub fn from_index(i: i32) -> Self {
+        match i {
+            0 => Self::Minutes,
+            2 => Self::Days,
+            _ => Self::Hours,
+        }
+    }
 }
 
 impl Interval {
@@ -171,6 +204,32 @@ impl Runs {
         } else {
             Check::Wait(Duration::from_secs(ready_at - now))
         }
+    }
+
+    /// A one-line status for the UI, e.g. "Next check in 3h 12m · last check 2h ago".
+    pub fn describe(&self, cfg: &ProvidersConfig, id: ProviderId, now: u64) -> String {
+        if !cfg.settings_for(id).enabled {
+            return "Disabled".to_owned();
+        }
+        let next = match self.check(cfg, id, Trigger::Scheduled, now) {
+            Check::Run => "Due now".to_owned(),
+            Check::Wait(d) => format!("Next check in {}", fmt_duration(d)),
+            Check::Off => "Automatic checks are off".to_owned(),
+        };
+        let last = match self.get(id) {
+            Some(run) if run.last_error.is_some() => {
+                let error = run.last_error.as_deref().unwrap_or_default();
+                let short: String = error.chars().take(140).collect();
+                let dots = if error.chars().count() > 140 { "…" } else { "" };
+                format!(" · last check failed: {short}{dots}")
+            }
+            Some(run) if run.last_success > 0 => format!(
+                " · last check {} ago",
+                fmt_duration(Duration::from_secs(now.saturating_sub(run.last_success)))
+            ),
+            _ => String::new(),
+        };
+        format!("{next}{last}")
     }
 
     /// The providers a scheduled tick should check.
@@ -320,6 +379,46 @@ mod tests {
             runs.check(&cfg, ProviderId::Wallhaven, Trigger::Scheduled, 500),
             Check::Wait(d) if d <= interval(&cfg, ProviderId::Wallhaven)
         ));
+    }
+
+    #[test]
+    fn durations_read_naturally() {
+        let secs = Duration::from_secs;
+        assert_eq!(fmt_duration(secs(45)), "45s");
+        assert_eq!(fmt_duration(secs(600)), "10m");
+        assert_eq!(fmt_duration(secs(6 * 3600)), "6h");
+        assert_eq!(fmt_duration(secs(3 * 3600 + 12 * 60 + 40)), "3h 12m");
+        assert_eq!(fmt_duration(secs(26 * 3600)), "1d 2h");
+        assert_eq!(fmt_duration(secs(2 * 86_400)), "2d");
+    }
+
+    #[test]
+    fn status_text() {
+        let mut cfg = cfg();
+        let mut runs = Runs::default();
+        assert_eq!(runs.describe(&cfg, ProviderId::Wallhaven, 1000), "Due now");
+
+        runs.record(ProviderId::Wallhaven, 10_000, None);
+        assert_eq!(
+            runs.describe(&cfg, ProviderId::Wallhaven, 10_000 + 600),
+            "Next check in 50m · last check 10m ago"
+        );
+
+        runs.record(ProviderId::Wallhaven, 20_000, Some("offline".into()));
+        assert!(runs.describe(&cfg, ProviderId::Wallhaven, 20_100).ends_with("last check failed: offline"));
+
+        cfg.schedule.enabled = false;
+        assert!(runs.describe(&cfg, ProviderId::Wallhaven, 20_100).starts_with("Automatic checks are off"));
+        cfg.settings.get_mut("wallhaven").unwrap().enabled = false;
+        assert_eq!(runs.describe(&cfg, ProviderId::Wallhaven, 20_100), "Disabled");
+    }
+
+    #[test]
+    fn unit_indices_match_the_ui_order() {
+        for unit in [Unit::Minutes, Unit::Hours, Unit::Days] {
+            assert_eq!(Unit::from_index(unit.index()), unit);
+        }
+        assert_eq!(Unit::from_index(99), Unit::Hours);
     }
 
     #[test]
