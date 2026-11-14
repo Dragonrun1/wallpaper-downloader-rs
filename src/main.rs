@@ -1,15 +1,16 @@
 use slint::ComponentHandle;
 
+mod background;
 mod changer;
 mod config;
+mod library;
 mod lifecycle;
+mod providers;
 mod saver;
 mod screens;
 mod state;
 mod tray;
 mod wallpaper;
-mod providers;
-mod library;
 
 use config::Config;
 use saver::Saver;
@@ -27,6 +28,7 @@ fn main() -> Result<(), slint::PlatformError> {
     tray::setup(&tray, &window);
     let screens = screens::Screens::new(&window);
     changer::setup(&window, &tray, &saver, &screens, &changer_cfg);
+    let _background = background::setup(&tray, &saver);
     let _minimize_watcher = lifecycle::install(&window, &saver);
 
     window.show()?;

@@ -76,6 +76,8 @@ pub async fn harvest(
         }
     }
 
+    results.sort_by_key(|(id, _)| *id); // finishing order is random; keep output stable
+
     // Never trim away what this very run just fetched
     let protect: HashSet<(ProviderId, String)> = results
         .iter()

@@ -6,7 +6,12 @@ use std::{
 
 use slint::{ComponentHandle, Timer, TimerMode, Weak};
 
-use crate::{changer, config::Config, MainWindow};
+use crate::{
+    changer,
+    config::Config,
+    providers::ProvidersConfig,
+    MainWindow
+};
 
 const SAVE_DELAY: Duration = Duration::from_secs(10);
 
@@ -31,17 +36,6 @@ impl Saver {
         })
     }
 
-    /// Something changed: (re)start the countdown.
-    pub fn mark_dirty(&self) {
-        self.dirty.set(true);
-        let this = self.this.clone();
-        self.timer.start(TimerMode::SingleShot, SAVE_DELAY, move || {
-            if let Some(saver) = this.upgrade() {
-                saver.flush();
-            }
-        });
-    }
-
     /// Save now if anything is pending.
     pub fn flush(&self) {
         if !self.dirty.replace(false) {
@@ -54,5 +48,20 @@ impl Saver {
             eprintln!("Could not save config: {e}");
             self.dirty.set(true); // retry on the next flush
         }
+    }
+
+    /// Something changed: (re)start the countdown.
+    pub fn mark_dirty(&self) {
+        self.dirty.set(true);
+        let this = self.this.clone();
+        self.timer.start(TimerMode::SingleShot, SAVE_DELAY, move || {
+            if let Some(saver) = this.upgrade() {
+                saver.flush();
+            }
+        });
+    }
+
+    pub fn providers(&self) -> ProvidersConfig {
+        self.cfg.borrow().providers.clone()
     }
 }

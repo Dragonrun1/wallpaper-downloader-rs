@@ -30,6 +30,8 @@ pub struct Entry {
 #[derive(Debug, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Library {
+    /// The download folder these entries describe.
+    dir: Option<String>,
     entries: BTreeMap<String, Entry>,
 }
 
@@ -103,6 +105,25 @@ impl Library {
         self.entries.len()
     }
 
+    /// A library describes one download folder. If the folder changed, the old
+    /// entries describe files somewhere else, so drop them (nothing on disk is
+    /// touched) and start fresh. Returns true if that happened.
+    pub fn bind_dir(&mut self, dir: &Path) -> bool {
+        let key = dir.to_string_lossy().into_owned();
+        match self.dir.as_deref() {
+            Some(current) if current != key => {
+                self.entries.clear();
+                self.dir = Some(key);
+                true
+            }
+            Some(_) => false,
+            None => {
+                self.dir = Some(key);
+                false
+            }
+        }
+    }
+
     /// Entries whose file has vanished (the user deleted it) become blocked,
     /// so the image isn't downloaded again. Returns how many were newly blocked.
     /// Does nothing if the directory itself is missing, so an unplugged drive
@@ -150,6 +171,19 @@ mod tests {
         assert!(lib.contains(ProviderId::Wallhaven, "b")); // still known: never re-downloaded
         assert_eq!(lib.visible().count(), 1);
         assert_eq!(lib.prune(&dir), 0); // idempotent
+    }
+
+    #[test]
+    fn a_changed_folder_starts_a_fresh_library_instead_of_blocking_everything() {
+        let mut lib = Library::default();
+        assert!(!lib.bind_dir(Path::new("/pictures/a"))); // first folder: just remembered
+        lib.insert(entry("x", "x.jpg"));
+        assert!(!lib.bind_dir(Path::new("/pictures/a"))); // same folder: nothing happens
+        assert_eq!(lib.visible().count(), 1);
+
+        assert!(lib.bind_dir(Path::new("/pictures/b"))); // different folder
+        assert_eq!(lib.len(), 0);
+        assert!(!lib.contains(ProviderId::Wallhaven, "x")); // not blocked, just not tracked here
     }
 
     #[test]

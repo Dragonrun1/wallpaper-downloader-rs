@@ -4,6 +4,7 @@
 pub mod bing;
 pub mod harvest;
 pub mod schedule;
+pub mod service;
 pub mod storage;
 pub mod wallhaven;
 

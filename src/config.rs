@@ -2,6 +2,7 @@ use std::{fs, io, path::PathBuf};
 use std::time::Duration;
 use directories::{ProjectDirs, UserDirs};
 use serde::{Deserialize, Serialize};
+use crate::providers::ProvidersConfig;
 
 /// `<Pictures>/wallpapers`, using the platform's own Pictures folder
 /// (XDG on Linux, including localized names, plus Windows and macOS).
@@ -105,6 +106,7 @@ impl Default for ChangerConfig {
 #[serde(default)]
 pub struct Config {
     pub changer: ChangerConfig,
+    pub providers: ProvidersConfig,
 }
 
 impl Config {

@@ -92,17 +92,19 @@ export component AppTray inherits SystemTrayIcon {
         : @image-url("./images/wallpaper_icon_128.png");
     tooltip: "Wallpaper Manager";
 
-    callback tray-clicked();
-    callback open-tab(int);
     callback change-now();
+    callback download-now();
+    callback open-tab(int);
     callback quit();
+    callback tray-clicked();
 
     clicked => { root.tray-clicked(); }
 
     Menu {
+        MenuItem { title: @tr("Change Wallpaper Now"); activated => { root.change-now(); } }
+        MenuItem { title: @tr("Download Wallpapers Now"); activated => { root.download-now(); } }
         MenuItem { title: @tr("Open"); activated => { root.open-tab(-1); } }
         MenuItem { title: @tr("Settings…"); activated => { root.open-tab(1); } }
-        MenuItem { title: @tr("Change Wallpaper Now"); activated => { root.change-now(); } }
         MenuSeparator { }
         MenuItem { title: @tr("Quit"); activated => { root.quit(); } }
     }
