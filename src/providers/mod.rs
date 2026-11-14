@@ -3,6 +3,7 @@
 
 pub mod bing;
 pub mod harvest;
+pub mod storage;
 pub mod wallhaven;
 
 use std::collections::BTreeMap;
@@ -140,6 +141,9 @@ pub struct ProviderSettings {
 #[serde(default)]
 pub struct ProvidersConfig {
     pub download_dir: String,
+    /// The app's own downloads may use at most this many MB; the oldest
+    /// non-favorites are deleted past that. 0 means unlimited.
+    pub max_folder_size_mb: u64,
     /// Shared by every provider that supports searching. Separate several
     /// with `;` and one is picked at random for each run.
     pub keywords: String,
@@ -164,6 +168,7 @@ impl Default for ProvidersConfig {
             download_dir: default_wallpaper_dir()
                 .and_then(|p| p.to_str().map(str::to_owned))
                 .unwrap_or_default(),
+            max_folder_size_mb: 256,
             keywords: String::new(),
             forbidden_tags: Vec::new(),
             settings,

@@ -1,6 +1,7 @@
 //! The shared pipeline: providers find images, this downloads and records them.
 
 use std::{
+    collections::HashSet,
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
     time::{Duration, SystemTime, UNIX_EPOCH},
@@ -11,9 +12,15 @@ use display_info::DisplayInfo;
 use tokio::task::JoinSet;
 
 use super::{Ctx, ProviderId, ProvidersConfig, Source, Wallpaper};
+use super::storage::{self, Cleanup};
 use crate::library::{Entry, Library};
 
 pub type HarvestResult = (ProviderId, Result<Option<Entry>>);
+
+pub struct HarvestReport {
+    pub results: Vec<HarvestResult>,
+    pub cleanup: Cleanup,
+}
 
 pub fn build_client() -> Result<reqwest::Client> {
     Ok(reqwest::Client::builder()
@@ -22,12 +29,13 @@ pub fn build_client() -> Result<reqwest::Client> {
         .build()?)
 }
 
-/// Run every enabled provider in parallel, each fetching at most one new image.
+/// Run every enabled provider in parallel, each fetching at most one new image,
+/// then trim the downloads to the size limit.
 /// The caller decides when to save the library.
 pub async fn harvest_all(
     cfg: &ProvidersConfig,
     library: Arc<Mutex<Library>>,
-) -> Result<Vec<HarvestResult>> {
+) -> Result<HarvestReport> {
     let client = build_client()?;
     let dir = PathBuf::from(&cfg.download_dir);
     if cfg.download_dir.is_empty() {
@@ -58,7 +66,21 @@ pub async fn harvest_all(
             Err(e) => eprintln!("Provider task failed: {e}"),
         }
     }
-    Ok(results)
+
+    // Never trim away what this very run just fetched
+    let protect: HashSet<(ProviderId, String)> = results
+        .iter()
+        .filter_map(|(_, r)| r.as_ref().ok()?.as_ref())
+        .map(|e| (e.wallpaper.provider, e.wallpaper.id.clone()))
+        .collect();
+    let cleanup = storage::enforce_limit(
+        &mut library.lock().unwrap(),
+        &dir,
+        cfg.max_folder_size_mb * storage::MB,
+        &protect,
+    );
+
+    Ok(HarvestReport { results, cleanup })
 }
 
 /// Download the first candidate that is new and allowed.
@@ -199,7 +221,9 @@ mod tests {
         cfg.settings.get_mut(ProviderId::Bing.key()).unwrap().enabled = true;
 
         let library = Arc::new(Mutex::new(Library::default()));
-        for (id, result) in harvest_all(&cfg, library.clone()).await.unwrap() {
+        let report = harvest_all(&cfg, library.clone()).await.unwrap();
+        println!("cleanup: {:?}", report.cleanup);
+        for (id, result) in report.results {
             match result {
                 Ok(Some(e)) => println!("{}: saved {} ({:?})", id.label(), e.file, e.wallpaper),
                 Ok(None) => println!("{}: nothing new", id.label()),
