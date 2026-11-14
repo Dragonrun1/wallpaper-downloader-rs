@@ -8,6 +8,8 @@ mod screens;
 mod state;
 mod tray;
 mod wallpaper;
+mod providers;
+mod library;
 
 use config::Config;
 use saver::Saver;

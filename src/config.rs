@@ -1,7 +1,13 @@
 use std::{fs, io, path::PathBuf};
 use std::time::Duration;
-use directories::ProjectDirs;
+use directories::{ProjectDirs, UserDirs};
 use serde::{Deserialize, Serialize};
+
+/// `<Pictures>/wallpapers`, using the platform's own Pictures folder
+/// (XDG on Linux, including localized names, plus Windows and macOS).
+pub fn default_wallpaper_dir() -> Option<PathBuf> {
+    UserDirs::new()?.picture_dir().map(|p| p.join("wallpapers"))
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -81,7 +87,10 @@ impl ChangerConfig {
 impl Default for ChangerConfig {
     fn default() -> Self {
         Self {
-            directories: Vec::new(),
+            directories: default_wallpaper_dir()
+                .and_then(|p| p.to_str().map(str::to_owned))
+                .into_iter()
+                .collect(),
             enabled: false,
             interval: 30,
             interval_unit: IntervalUnit::Minutes,
@@ -119,7 +128,12 @@ impl Config {
                     Self::default()
                 }
             },
-            Err(e) if e.kind() == io::ErrorKind::NotFound => Self::default(),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {
+                if let Some(dir) = default_wallpaper_dir() {
+                    let _ = fs::create_dir_all(dir);
+                }
+                Self::default()
+            },
             Err(e) => {
                 eprintln!("Could not read config {}: {e}", path.display());
                 Self::default()
