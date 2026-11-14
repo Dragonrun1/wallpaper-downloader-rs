@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use anyhow::Result;
 use async_trait::async_trait;
 use reqwest::RequestBuilder;
@@ -122,6 +124,13 @@ impl Source for Wallhaven {
         }
     }
 
+    /// Conservative guesses, not published limits: a key probably earns a
+    /// higher rate limit, so it gets a shorter minimum.
+    fn min_interval(&self, settings: &ProviderSettings) -> Duration {
+        let has_key = settings.api_key.as_deref().is_some_and(|k| !k.is_empty());
+        Duration::from_secs(if has_key { 5 * 60 } else { 10 * 60 })
+    }
+
     async fn list(&self, ctx: &Ctx) -> Result<Vec<Wallpaper>> {
         let mut query = vec![
             ("q", ctx.keywords.clone()),
@@ -195,6 +204,14 @@ mod tests {
             resolution_param(&f(ResolutionPolicy::Exact)),
             Some(("resolutions", "1920x1080,2560x1440".to_string()))
         );
+    }
+
+    #[test]
+    fn an_api_key_shortens_the_minimum_interval() {
+        let none = Wallhaven.min_interval(&ProviderSettings::default());
+        let keyed = Wallhaven.min_interval(&settings(false, false, Some("k")));
+        assert!(keyed < none);
+        assert_eq!(Wallhaven.min_interval(&settings(false, false, Some(""))), none);
     }
 
     #[test]

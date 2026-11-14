@@ -4,13 +4,14 @@ use std::{
     collections::HashSet,
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::Duration,
 };
 
 use anyhow::{anyhow, bail, Context, Result};
 use tokio::task::JoinSet;
 
 use super::{Ctx, ProviderId, ProvidersConfig, Source, Wallpaper};
+use super::schedule::now_secs;
 use super::storage::{self, Cleanup};
 use crate::library::{Entry, Library};
 
@@ -28,12 +29,22 @@ pub fn build_client() -> Result<reqwest::Client> {
         .build()?)
 }
 
-/// Run every enabled provider in parallel, each fetching at most one new image,
-/// then trim the downloads to the size limit.
-/// The caller decides when to save the library.
+/// Check every enabled provider, ignoring the schedule.
 pub async fn harvest_all(
     cfg: &ProvidersConfig,
     library: Arc<Mutex<Library>>,
+) -> Result<HarvestReport> {
+    harvest(cfg, library, &cfg.enabled()).await
+}
+
+/// Run the given providers in parallel, each fetching at most one new image,
+/// then trim the downloads to the size limit. Which providers are allowed to
+/// run right now is the caller's call (see `schedule`); this just does it.
+/// The caller also decides when to save the library.
+pub async fn harvest(
+    cfg: &ProvidersConfig,
+    library: Arc<Mutex<Library>>,
+    providers: &[ProviderId],
 ) -> Result<HarvestReport> {
     let client = build_client()?;
     let dir = PathBuf::from(&cfg.download_dir);
@@ -43,7 +54,7 @@ pub async fn harvest_all(
     let keyword = pick_keyword(&cfg.keywords);
 
     let mut set = JoinSet::new();
-    for id in cfg.enabled() {
+    for &id in providers {
         let ctx = Ctx {
             client: client.clone(),
             keywords: keyword.clone(),
@@ -201,10 +212,6 @@ fn sanitize(id: &str) -> String {
     id.chars()
         .map(|c| if c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.') { c } else { '_' })
         .collect()
-}
-
-fn now_secs() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs())
 }
 
 #[cfg(test)]

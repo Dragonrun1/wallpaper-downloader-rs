@@ -1,8 +1,13 @@
+use std::time::Duration;
+
 use anyhow::Result;
 use async_trait::async_trait;
 use serde::Deserialize;
 
-use super::{Capabilities, Ctx, KeyUse, ProviderId, ResolutionFilter, ResolutionPolicy, Source, Wallpaper};
+use super::{
+    Capabilities, Ctx, KeyUse, ProviderId, ProviderSettings, ResolutionFilter, ResolutionPolicy, Source,
+    Wallpaper,
+};
 
 const ARCHIVE_URL: &str = "https://www.bing.com/HPImageArchive.aspx";
 const SITE: &str = "https://www.bing.com";
@@ -33,6 +38,11 @@ impl Source for Bing {
 
     fn capabilities(&self) -> Capabilities {
         Capabilities { sorts: &[], keywords: false, api_key: KeyUse::None, market: true, purity: false }
+    }
+
+    /// Bing publishes one image a day, so a few checks a day is plenty.
+    fn min_interval(&self, _settings: &ProviderSettings) -> Duration {
+        Duration::from_secs(8 * 3600)
     }
 
     /// Bing's archive holds the last 8 days. Everything the library already

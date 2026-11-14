@@ -3,10 +3,11 @@
 
 pub mod bing;
 pub mod harvest;
+pub mod schedule;
 pub mod storage;
 pub mod wallhaven;
 
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, time::Duration};
 
 use anyhow::Result;
 use async_trait::async_trait;
@@ -14,6 +15,7 @@ use display_info::DisplayInfo;
 use serde::{Deserialize, Serialize};
 
 use crate::config::default_wallpaper_dir;
+use schedule::{Interval, ScheduleConfig};
 
 // ─── Identity ───────────────────────────────────────────────────────────────
 
@@ -211,6 +213,9 @@ impl Wallpaper {
 #[serde(default)]
 pub struct ProviderSettings {
     pub enabled: bool,
+    /// How often to check this provider. Empty means the shared schedule;
+    /// either way it can't go below the provider's own minimum.
+    pub interval: Option<Interval>,
     pub sort: Option<Sort>,
     pub api_key: Option<String>,
     /// Bing: locale like "en-US". Empty means the system locale.
@@ -228,6 +233,7 @@ pub struct ProvidersConfig {
     /// The app's own downloads may use at most this many MB; the oldest
     /// non-favorites are deleted past that. 0 means unlimited.
     pub max_folder_size_mb: u64,
+    pub schedule: ScheduleConfig,
     pub resolution: ResolutionFilter,
     /// Shared by every provider that supports searching. One is picked at
     /// random for each run; empty means no keyword.
@@ -254,6 +260,7 @@ impl Default for ProvidersConfig {
                 .and_then(|p| p.to_str().map(str::to_owned))
                 .unwrap_or_default(),
             max_folder_size_mb: 256,
+            schedule: ScheduleConfig::default(),
             resolution: ResolutionFilter::default(),
             keywords: Vec::new(),
             forbidden_tags: Vec::new(),
@@ -290,6 +297,10 @@ pub struct Ctx {
 pub trait Source: Send + Sync {
     fn id(&self) -> ProviderId;
     fn capabilities(&self) -> Capabilities;
+
+    /// The shortest gap allowed between two checks. It can depend on the
+    /// settings, e.g. an API key usually raises a service's rate limit.
+    fn min_interval(&self, settings: &ProviderSettings) -> Duration;
 
     /// Find candidate images. They may be incomplete (e.g. no tags yet).
     async fn list(&self, ctx: &Ctx) -> Result<Vec<Wallpaper>>;
@@ -349,6 +360,8 @@ mod tests {
         cfg.forbidden_tags = vec!["people".into()];
         cfg.resolution = filter(ResolutionPolicy::Exact, &[(1920, 1080), (2560, 1440)]);
         cfg.settings.get_mut("wallhaven").unwrap().sort = Some(Sort::Newest);
+        cfg.settings.get_mut("bing").unwrap().interval =
+            Some(Interval { every: 1, unit: schedule::Unit::Days });
 
         let text = toml::to_string_pretty(&cfg).unwrap();
         println!("{text}");
@@ -358,6 +371,8 @@ mod tests {
         assert_eq!(back.resolution.policy, ResolutionPolicy::Exact);
         assert_eq!(back.settings_for(ProviderId::Wallhaven).sort, Some(Sort::Newest));
         assert_eq!(back.enabled(), vec![ProviderId::Wallhaven]);
+        assert_eq!(back.settings_for(ProviderId::Bing).interval, cfg.settings_for(ProviderId::Bing).interval);
+        assert_eq!(back.schedule.interval, cfg.schedule.interval);
     }
 
     #[test]
