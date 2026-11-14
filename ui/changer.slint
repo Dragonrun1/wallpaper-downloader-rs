@@ -1,6 +1,5 @@
 import {
     Button,
-    CheckBox,
     ComboBox,
     GroupBox,
     HorizontalBox,
@@ -18,6 +17,7 @@ export struct ScreenInfo {
     width: int,
     height: int,
     primary: bool,
+    wallpaper: string,
 }
 
 component ScreenLayout inherits Rectangle {
@@ -47,9 +47,10 @@ component ScreenLayout inherits Rectangle {
         clip: true;
 
         Text {
-            text: s.name + "\n" + s.width + "×" + s.height + (s.primary ? "\nprimary" : "");
+            text: s.name + "\n" + s.width + "×" + s.height
+                + (s.wallpaper != "" ? "\n" + s.wallpaper : "");
             color: Palette.foreground;
-            font-size: 11px;
+            font-size: 10px;
             horizontal-alignment: center;
             vertical-alignment: center;
             overflow: elide;
@@ -62,25 +63,26 @@ export component ChangerPage inherits Rectangle {
     in-out property <int> interval: 30;
     in-out property <int> interval-unit: 1;      // 0 = seconds, 1 = minutes, 2 = hours
     in-out property <int> order-index: 0;        // 0 = Randomly, 1 = Oldest to newest, 2 = Newest to oldest
+    in-out property <int> monitor-mode: 1;       // 0 = Primary only, 1 = Different per monitor, 2 = Same on all
     in-out property <[string]> directories;
-    in-out property <bool> all-monitors: true;
-    in property <string> current-wallpaper: @tr("None yet");
+    in property <bool> per-screen-supported: true;
+    in property <string> status;
     in property <[ScreenInfo]> screens;
     in property <int> screens-width: 1;
     in property <int> screens-height: 1;
-    callback refresh-screens();
 
     callback change-now();
     callback settings-changed();
     callback add-directory();
     callback browse-directory(int);
     callback remove-directory(int);
+    callback refresh-screens();
 
     changed auto-change => { root.settings-changed(); }
     changed interval => { root.settings-changed(); }
     changed interval-unit => { root.settings-changed(); }
     changed order-index => { root.settings-changed(); }
-    changed all-monitors => { root.settings-changed(); }
+    changed monitor-mode => { root.settings-changed(); }
 
     VerticalBox {
         alignment: start;
@@ -126,9 +128,26 @@ export component ChangerPage inherits Rectangle {
                     }
                 }
 
-                CheckBox {
-                    text: @tr("Change on all monitors");
-                    checked <=> root.all-monitors;
+                HorizontalBox {
+                    Text {
+                        text: @tr("Monitors");
+                        vertical-alignment: center;
+                    }
+
+                    ComboBox {
+                        model: [
+                            @tr("Primary monitor only"),
+                            @tr("Different image on each monitor"),
+                            @tr("Same image on all monitors"),
+                        ];
+                        current-index <=> root.monitor-mode;
+                        enabled: root.per-screen-supported;
+                    }
+                }
+
+                if !root.per-screen-supported: Text {
+                    text: @tr("This desktop can only set one wallpaper for all screens.");
+                    wrap: word-wrap;
                 }
             }
         }
@@ -165,35 +184,31 @@ export component ChangerPage inherits Rectangle {
         }
 
         GroupBox {
-            title: @tr("Current wallpaper");
-
-            VerticalBox {
-                Text {
-                    text: root.current-wallpaper;
-                    wrap: word-wrap;
-                }
-
-                Button {
-                    text: @tr("Change Now");
-                    clicked => { root.change-now(); }
-                }
-            }
-        }
-
-        GroupBox {
-            title: @tr("Screen layout");
+            title: @tr("Screens");
 
             VerticalBox {
                 ScreenLayout {
-                    height: 160px;
+                    height: 110px;
                     screens: root.screens;
                     total-width: root.screens-width;
                     total-height: root.screens-height;
                 }
 
-                Button {
-                    text: @tr("Refresh");
-                    clicked => { root.refresh-screens(); }
+                if root.status != "": Text {
+                    text: root.status;
+                    wrap: word-wrap;
+                }
+                HorizontalBox {
+                    alignment: start;
+                    Button {
+                        text: @tr("Change Now");
+                        clicked => { root.change-now(); }
+                    }
+
+                    Button {
+                        text: @tr("Refresh");
+                        clicked => { root.refresh-screens(); }
+                    }
                 }
             }
         }

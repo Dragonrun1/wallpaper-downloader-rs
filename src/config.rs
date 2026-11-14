@@ -57,12 +57,12 @@ impl ChangeOrder {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ChangerConfig {
+    pub directories: Vec<String>,
     pub enabled: bool,
     pub interval: u32,
     pub interval_unit: IntervalUnit,
+    pub monitor_mode: MonitorMode,
     pub order: ChangeOrder,
-    pub directories: Vec<String>,
-    pub all_monitors: bool,
 }
 
 impl ChangerConfig {
@@ -80,12 +80,12 @@ impl ChangerConfig {
 impl Default for ChangerConfig {
     fn default() -> Self {
         Self {
+            directories: Vec::new(),
             enabled: false,
             interval: 30,
             interval_unit: IntervalUnit::Minutes,
+            monitor_mode: MonitorMode::DifferentPerMonitor,
             order: ChangeOrder::Random,
-            directories: Vec::new(),
-            all_monitors: true,
         }
     }
 }
@@ -137,5 +137,31 @@ impl Config {
         let tmp = path.with_extension("toml.tmp");
         fs::write(&tmp, text)?;
         fs::rename(&tmp, &path)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum MonitorMode {
+    PrimaryOnly,
+    DifferentPerMonitor,
+    SameOnAll,
+}
+
+impl MonitorMode {
+    // Indices match the ComboBox order in changer.slint
+    pub fn index(self) -> i32 {
+        match self {
+            Self::PrimaryOnly => 0,
+            Self::DifferentPerMonitor => 1,
+            Self::SameOnAll => 2,
+        }
+    }
+    pub fn from_index(i: i32) -> Self {
+        match i {
+            0 => Self::PrimaryOnly,
+            2 => Self::SameOnAll,
+            _ => Self::DifferentPerMonitor,
+        }
     }
 }

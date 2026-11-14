@@ -23,8 +23,11 @@ export component MainWindow inherits Window {
     in-out property <int> changer-interval: 30;
     in-out property <int> changer-interval-unit: 1;
     in-out property <int> changer-order: 0;
+    in-out property <int> changer-monitor-mode: 1;
     in-out property <[string]> changer-directories;
+    in property <bool> changer-per-screen-supported: true;
     in-out property <bool> changer-all-monitors: true;
+    in property <string> changer-status;
     in property <string> changer-current;
     in property <[ScreenInfo]> changer-screens;
     in property <int> changer-screens-width: 1;
@@ -49,18 +52,19 @@ export component MainWindow inherits Window {
                 interval <=> root.changer-interval;
                 interval-unit <=> root.changer-interval-unit;
                 order-index <=> root.changer-order;
+                monitor-mode <=> root.changer-monitor-mode;
                 directories <=> root.changer-directories;
-                all-monitors <=> root.changer-all-monitors;
-                current-wallpaper: root.changer-current;
+                per-screen-supported: root.changer-per-screen-supported;
+                status: root.changer-status;
+                screens: root.changer-screens;
+                screens-width: root.changer-screens-width;
+                screens-height: root.changer-screens-height;
 
                 change-now => { root.changer-change-now(); }
                 settings-changed => { root.changer-settings-changed(); }
                 add-directory => { root.changer-add-directory(); }
                 browse-directory(i) => { root.changer-browse-directory(i); }
                 remove-directory(i) => { root.changer-remove-directory(i); }
-                screens: root.changer-screens;
-                screens-width: root.changer-screens-width;
-                screens-height: root.changer-screens-height;
                 refresh-screens => { root.changer-refresh-screens(); }
             }
         }

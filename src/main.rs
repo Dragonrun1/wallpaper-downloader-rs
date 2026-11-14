@@ -22,8 +22,8 @@ fn main() -> Result<(), slint::PlatformError> {
     let saver = Saver::new(&window, cfg);
 
     tray::setup(&tray, &window);
-    changer::setup(&window, &tray, &saver, &changer_cfg);
-    screens::setup(&window);
+    let screens = screens::Screens::new(&window);
+    changer::setup(&window, &tray, &saver, &screens, &changer_cfg);
     let _minimize_watcher = lifecycle::install(&window, &saver);
 
     window.show()?;

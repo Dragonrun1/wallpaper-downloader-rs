@@ -1,9 +1,9 @@
-use std::{cell::RefCell, fs, time::SystemTime};
+use std::{cell::RefCell, collections::HashMap, fs, time::SystemTime};
 
 use display_info::DisplayInfo;
 use more_wallpapers::{Mode, WallpaperBuilder};
 
-use crate::config::{ChangeOrder, ChangerConfig};
+use crate::config::{ChangeOrder, ChangerConfig, MonitorMode};
 
 const EXTENSIONS: &[&str] = &["jpg", "jpeg", "png", "bmp", "webp"];
 
@@ -12,45 +12,91 @@ struct Image {
     modified: SystemTime,
 }
 
-/// Remembers the last image used so sequential order continues where it left off.
-#[derive(Default)]
+/// What the desktop looks like after a change.
+pub struct Outcome {
+    /// Screen name -> wallpaper path, for every screen the app has set.
+    pub by_screen: HashMap<String, String>,
+    /// One wallpaper shared by every screen, if that's what was applied.
+    pub shared: Option<String>,
+}
+
 pub struct Engine {
+    per_screen: bool,
+    /// Last image used, so sequential order continues where it left off.
     last: RefCell<Option<String>>,
+    /// What each screen currently shows, for screens that are left unchanged.
+    applied: RefCell<HashMap<String, String>>,
 }
 
 impl Engine {
-    /// Returns the paths of the wallpapers that were set.
-    pub fn change(&self, cfg: &ChangerConfig) -> Result<Vec<String>, String> {
+    pub fn new() -> Self {
+        // If detection fails, assume per-screen works and let the real call report errors
+        let per_screen = WallpaperBuilder::new()
+            .map(|b| b.environment().support_various_wallpaper())
+            .unwrap_or(true);
+        Self {
+            per_screen,
+            last: RefCell::default(),
+            applied: RefCell::default(),
+        }
+    }
+
+    pub fn per_screen_supported(&self) -> bool {
+        self.per_screen
+    }
+
+    pub fn change(&self, cfg: &ChangerConfig) -> Result<Outcome, String> {
         let images = scan(&cfg.directories);
         if images.is_empty() {
             return Err("No images found in the selected directories".into());
         }
 
+        let monitor_mode = if self.per_screen {
+            cfg.monitor_mode
+        } else {
+            MonitorMode::SameOnAll
+        };
+
         let builder = WallpaperBuilder::new().map_err(|e| e.to_string())?;
-        let targets = target_screens(&builder, cfg.all_monitors)?;
-        let picks = self.pick(images, cfg.order, targets.len());
+        let targets = target_screens(&builder, monitor_mode)?;
+        let pick_count = if monitor_mode == MonitorMode::DifferentPerMonitor {
+            targets.len()
+        } else {
+            1
+        };
+        let picks = self.pick(images, cfg.order, pick_count);
 
         let mut index = 0usize;
-        let mut used = Vec::new();
+        let mut assigned: Vec<(String, String)> = Vec::new();
         builder
             .set_wallpapers(|screen| {
-                let i = index;
+                let target = targets.iter().position(|&t| t == index);
                 index += 1;
-                match targets.iter().position(|&t| t == i) {
-                    Some(n) => {
-                        used.push(picks[n].clone());
-                        (picks[n].clone(), Mode::default())
-                    }
-                    // Not a target: keep whatever it has now
+
+                let (path, mode) = match target {
+                    Some(n) => (picks[n % picks.len()].clone(), Mode::default()),
+                    // Not changing this screen: reuse what it already shows
                     None => {
-                        let current = screen.wallpaper.as_ref().map(|p| p.to_string());
-                        (current.unwrap_or_else(|| picks[0].clone()), screen.mode.unwrap_or_default())
+                        let current = screen
+                            .wallpaper
+                            .as_ref()
+                            .map(|p| p.to_string())
+                            .or_else(|| self.applied.borrow().get(&screen.name).cloned())
+                            .unwrap_or_else(|| picks[0].clone());
+                        (current, screen.mode.unwrap_or_default())
                     }
-                }
+                };
+                assigned.push((screen.name.clone(), path.clone()));
+                (path, mode)
             })
             .map_err(|e| e.to_string())?;
 
-        Ok(used)
+        // Only remember it once the desktop accepted it
+        self.applied.borrow_mut().extend(assigned);
+        Ok(Outcome {
+            by_screen: self.applied.borrow().clone(),
+            shared: (monitor_mode == MonitorMode::SameOnAll).then(|| picks[0].clone()),
+        })
     }
 
     fn pick(&self, mut images: Vec<Image>, order: ChangeOrder, count: usize) -> Vec<String> {
@@ -90,25 +136,28 @@ impl Engine {
 }
 
 /// Indices (into the builder's screen list) that should get a new wallpaper.
-fn target_screens(builder: &WallpaperBuilder, all_monitors: bool) -> Result<Vec<usize>, String> {
+fn target_screens(builder: &WallpaperBuilder, mode: MonitorMode) -> Result<Vec<usize>, String> {
     let screens = builder.screens();
     if screens.is_empty() {
         return Err("No screens detected".into());
     }
-    if all_monitors {
-        let active: Vec<usize> = (0..screens.len()).filter(|&i| screens[i].active).collect();
-        return Ok(if active.is_empty() { vec![0] } else { active });
-    }
 
-    let primary_name = DisplayInfo::all()
-        .ok()
-        .and_then(|d| d.into_iter().find(|d| d.is_primary))
-        .map(|d| d.name);
-    let by_name = screens
-        .iter()
-        .position(|s| s.active && Some(&s.name) == primary_name.as_ref());
-    let first_active = screens.iter().position(|s| s.active);
-    Ok(vec![by_name.or(first_active).unwrap_or(0)])
+    let active: Vec<usize> = (0..screens.len()).filter(|&i| screens[i].active).collect();
+    match mode {
+        MonitorMode::DifferentPerMonitor | MonitorMode::SameOnAll => {
+            Ok(if active.is_empty() { vec![0] } else { active })
+        }
+        MonitorMode::PrimaryOnly => {
+            let primary_name = DisplayInfo::all()
+                .ok()
+                .and_then(|d| d.into_iter().find(|d| d.is_primary))
+                .map(|d| d.name);
+            let by_name = screens
+                .iter()
+                .position(|s| s.active && Some(&s.name) == primary_name.as_ref());
+            Ok(vec![by_name.or(active.first().copied()).unwrap_or(0)])
+        }
+    }
 }
 
 /// Non-recursive scan; skips unreadable directories and non-UTF-8 paths.
@@ -137,4 +186,3 @@ fn scan(dirs: &[String]) -> Vec<Image> {
     out.dedup_by(|a, b| a.path == b.path); // overlapping directories
     out
 }
-
