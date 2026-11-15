@@ -38,7 +38,16 @@ impl Source for Bing {
     }
 
     fn capabilities(&self) -> Capabilities {
-        Capabilities { sorts: &[], keywords: false, api_key: KeyUse::None, market: true, purity: false }
+        Capabilities {
+            sorts: &[],
+            keywords: false,
+            api_key: KeyUse::None,
+            key_label: "",
+            secret_label: None,
+            market: true,
+            purity: false,
+            help: "",
+        }
     }
 
     /// Bing publishes one image a day, so a few checks a day is plenty.

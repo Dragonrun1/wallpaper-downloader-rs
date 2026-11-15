@@ -40,7 +40,15 @@ pub fn check_status(response: Response) -> Result<Response> {
         .and_then(|v| v.to_str().ok())
         .and_then(|v| parse_retry_after(v, SystemTime::now()));
 
+    // Some services (Unsplash) report an exhausted quota as 403 with this header
+    let quota_spent = status == StatusCode::FORBIDDEN
+        && response
+        .headers()
+        .get("x-ratelimit-remaining")
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| v.trim() == "0");
     let limited = status == StatusCode::TOO_MANY_REQUESTS
+        || quota_spent
         || (status == StatusCode::SERVICE_UNAVAILABLE && retry_after.is_some());
     if limited {
         return Err(Error::new(RateLimited { retry_after }));
@@ -78,6 +86,16 @@ mod tests {
             builder = builder.header("retry-after", value);
         }
         Response::from(builder.body("").unwrap())
+    }
+
+    #[test]
+    fn a_403_with_no_quota_left_counts_as_a_rate_limit() {
+        let spent = http::Response::builder().status(403).header("x-ratelimit-remaining", "0").body("").unwrap();
+        assert!(rate_limit(&check_status(Response::from(spent)).unwrap_err()).is_some());
+
+        let left = http::Response::builder().status(403).header("x-ratelimit-remaining", "12").body("").unwrap();
+        assert!(rate_limit(&check_status(Response::from(left)).unwrap_err()).is_none());
+        assert!(rate_limit(&check_status(response(403, None)).unwrap_err()).is_none());
     }
 
     #[test]

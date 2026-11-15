@@ -40,6 +40,18 @@ fn min_interval_text(cfg: &ProvidersConfig, id: ProviderId) -> SharedString {
     format!("minimum {}", fmt_duration(floor(cfg, id))).into()
 }
 
+/// The provider's setup help, plus a note when it ignores keywords.
+fn note_for(caps: &crate::providers::Capabilities) -> String {
+    let mut parts = Vec::new();
+    if !caps.help.is_empty() {
+        parts.push(caps.help);
+    }
+    if !caps.keywords {
+        parts.push("Doesn't use keywords.");
+    }
+    parts.join(" ")
+}
+
 fn card_from(cfg: &ProvidersConfig, id: ProviderId, status: String) -> ProviderCard {
     let settings = cfg.settings_for(id);
     let caps = id.source().capabilities();
@@ -69,13 +81,18 @@ fn card_from(cfg: &ProvidersConfig, id: ProviderId, status: String) -> ProviderC
         sort_options: ModelRc::new(VecModel::from(sort_options)),
         sort_index,
         has_key: caps.api_key != KeyUse::None,
+        key_label: caps.key_label.into(),
+        key_required: caps.api_key == KeyUse::Required,
         api_key: settings.api_key.unwrap_or_default().into(),
+        has_secret: caps.secret_label.is_some(),
+        secret_label: caps.secret_label.unwrap_or_default().into(),
+        api_secret: settings.api_secret.unwrap_or_default().into(),
         has_market: caps.market,
         market: settings.market.unwrap_or_default().into(),
         has_purity: caps.purity,
         allow_sketchy: settings.allow_sketchy,
         allow_nsfw: settings.allow_nsfw,
-        note: if caps.keywords { "" } else { "Doesn't use keywords." }.into(),
+        note: note_for(&caps).into(),
         status: status.into(),
     }
 }
@@ -92,6 +109,7 @@ fn settings_from_card(card: &ProviderCard) -> Option<(ProviderId, ProviderSettin
         }),
         sort,
         api_key: non_empty(&card.api_key),
+        api_secret: non_empty(&card.api_secret),
         market: non_empty(&card.market),
         allow_sketchy: card.allow_sketchy,
         allow_nsfw: card.allow_nsfw,
@@ -354,6 +372,7 @@ fn wire_cards(window: &MainWindow, cards: &Rc<VecModel<ProviderCard>>, notify: &
             let done = edit_card(&model, i, |c| {
                 match field.as_str() {
                     "api-key" => c.api_key = value.clone(),
+                    "api-secret" => c.api_secret = value.clone(),
                     "market" => c.market = value.clone(),
                     _ => return false,
                 }
@@ -374,7 +393,18 @@ mod tests {
     #[test]
     fn providers_are_listed_alphabetically() {
         let labels: Vec<_> = sorted_ids().into_iter().map(|id| id.label()).collect();
-        assert_eq!(labels, vec!["Bing Photo of the Day", "Wallhaven"]);
+        assert_eq!(
+            labels,
+            vec![
+                "Bing Photo of the Day",
+                "DeviantArt",
+                "Dual Monitor Backgrounds",
+                "Social Wallpapering",
+                "Unsplash",
+                "Wallhaven",
+                "WallpaperFusion",
+            ]
+        );
     }
 
     #[test]
@@ -387,6 +417,7 @@ mod tests {
                 interval: Some(Interval { every: 2, unit: Unit::Days }),
                 sort: Some(Sort::Newest),
                 api_key: Some("secret".into()),
+                api_secret: Some("shh".into()),
                 market: None,
                 allow_sketchy: true,
                 allow_nsfw: false,
@@ -415,7 +446,18 @@ mod tests {
         assert!(wallhaven.has_key && wallhaven.has_purity && !wallhaven.has_market);
         assert!(bing.has_market && !bing.has_key && !bing.has_purity);
         assert_eq!(bing.note, "Doesn't use keywords.");
-        assert_eq!(wallhaven.note, "");
+        assert_eq!(wallhaven.note, "An API key is optional; NSFW content needs one.");
+        assert_eq!(wallhaven.key_label, "API key");
+        assert!(!wallhaven.key_required && !wallhaven.has_secret);
+
+        let deviantart = card_from(&cfg, ProviderId::DeviantArt, String::new());
+        assert!(deviantart.has_key && deviantart.key_required && deviantart.has_secret);
+        assert_eq!((deviantart.key_label.as_str(), deviantart.secret_label.as_str()), ("Client ID", "Client secret"));
+        assert_eq!(deviantart.sort_options.row_count(), 3); // "Default" + Top + Newest
+
+        let unsplash = card_from(&cfg, ProviderId::Unsplash, String::new());
+        assert!(unsplash.key_required && !unsplash.has_secret);
+        assert_eq!(unsplash.key_label, "Access key");
     }
 
     #[test]

@@ -120,8 +120,11 @@ impl Source for Wallhaven {
             ],
             keywords: true,
             api_key: KeyUse::Optional,
+            key_label: "API key",
+            secret_label: None,
             market: false,
             purity: true,
+            help: "An API key is optional; NSFW content needs one.",
         }
     }
 

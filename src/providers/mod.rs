@@ -2,14 +2,20 @@
 //! a background thread and be tested on its own.
 
 pub mod bing;
+pub mod deviantart;
+pub mod dual_monitor;
 pub mod harvest;
 pub mod net;
 pub mod schedule;
+pub mod scrape;
 pub mod service;
+pub mod social_wallpapering;
 pub mod storage;
+pub mod unsplash;
+pub mod wallpaper_fusion;
 pub mod wallhaven;
 
-use std::{collections::BTreeMap, time::Duration};
+use std::{collections::BTreeMap, sync::Arc, time::Duration};
 
 use anyhow::Result;
 use async_trait::async_trait;
@@ -24,18 +30,36 @@ use schedule::{Interval, ScheduleConfig};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum ProviderId {
-    Wallhaven,
     Bing,
+    DeviantArt,
+    DualMonitor,
+    SocialWallpapering,
+    Unsplash,
+    Wallhaven,
+    WallpaperFusion,
 }
 
 impl ProviderId {
-    pub const ALL: [ProviderId; 2] = [Self::Wallhaven, Self::Bing];
+    pub const ALL: [ProviderId; 7] = [
+        Self::Bing,
+        Self::DeviantArt,
+        Self::DualMonitor,
+        Self::SocialWallpapering,
+        Self::Unsplash,
+        Self::Wallhaven,
+        Self::WallpaperFusion,
+    ];
 
     /// Stable key used in file names, the library index and the config file.
     pub fn key(self) -> &'static str {
         match self {
-            Self::Wallhaven => "wallhaven",
             Self::Bing => "bing",
+            Self::DeviantArt => "deviantart",
+            Self::DualMonitor => "dual-monitor",
+            Self::SocialWallpapering => "social-wallpapering",
+            Self::Unsplash => "unsplash",
+            Self::Wallhaven => "wallhaven",
+            Self::WallpaperFusion => "wallpaper-fusion",
         }
     }
 
@@ -45,15 +69,25 @@ impl ProviderId {
 
     pub fn label(self) -> &'static str {
         match self {
-            Self::Wallhaven => "Wallhaven",
             Self::Bing => "Bing Photo of the Day",
+            Self::DeviantArt => "DeviantArt",
+            Self::DualMonitor => "Dual Monitor Backgrounds",
+            Self::SocialWallpapering => "Social Wallpapering",
+            Self::Unsplash => "Unsplash",
+            Self::Wallhaven => "Wallhaven",
+            Self::WallpaperFusion => "WallpaperFusion",
         }
     }
 
     pub fn source(self) -> Box<dyn Source> {
         match self {
-            Self::Wallhaven => Box::new(wallhaven::Wallhaven),
             Self::Bing => Box::new(bing::Bing),
+            Self::DeviantArt => Box::new(deviantart::DeviantArt),
+            Self::DualMonitor => Box::new(dual_monitor::DualMonitor),
+            Self::SocialWallpapering => Box::new(social_wallpapering::SocialWallpapering),
+            Self::Unsplash => Box::new(unsplash::Unsplash),
+            Self::Wallhaven => Box::new(wallhaven::Wallhaven),
+            Self::WallpaperFusion => Box::new(wallpaper_fusion::WallpaperFusion),
         }
     }
 }
@@ -100,9 +134,15 @@ pub struct Capabilities {
     pub sorts: &'static [Sort],
     pub keywords: bool,
     pub api_key: KeyUse,
+    /// What the key field is called for this provider ("API key", "Client ID", ...).
+    pub key_label: &'static str,
+    /// A second credential (e.g. an OAuth client secret), if there is one.
+    pub secret_label: Option<&'static str>,
     pub market: bool,
     /// Has sketchy / NSFW content levels (`allow_sketchy`, `allow_nsfw`).
     pub purity: bool,
+    /// A line of setup help shown on the provider's card.
+    pub help: &'static str,
 }
 
 // ─── Resolution ─────────────────────────────────────────────────────────────
@@ -256,6 +296,8 @@ pub struct ProviderSettings {
     pub interval: Option<Interval>,
     pub sort: Option<Sort>,
     pub api_key: Option<String>,
+    /// A second credential, for providers that need one (DeviantArt's client secret).
+    pub api_secret: Option<String>,
     /// Bing: locale like "en-US". Empty means the system locale.
     pub market: Option<String>,
     /// Wallhaven: include "sketchy" images. Off unless asked for.
@@ -329,6 +371,27 @@ pub struct Ctx {
     pub keywords: String,
     pub resolution: ResolutionFilter,
     pub settings: ProviderSettings,
+    /// Is this image ID already in the library? Lets a provider keep paging
+    /// only while everything it has seen so far is old.
+    pub known: Arc<dyn Fn(&str) -> bool + Send + Sync>,
+}
+
+impl Ctx {
+    pub fn is_known(&self, id: &str) -> bool {
+        (self.known)(id)
+    }
+}
+
+/// A context for tests: no keyword, no size limits, nothing known.
+#[cfg(test)]
+pub fn test_ctx() -> Ctx {
+    Ctx {
+        client: reqwest::Client::new(),
+        keywords: String::new(),
+        resolution: ResolutionFilter { policy: ResolutionPolicy::Any, targets: Vec::new() },
+        settings: ProviderSettings::default(),
+        known: Arc::new(|_| false),
+    }
 }
 
 #[async_trait]
@@ -339,6 +402,11 @@ pub trait Source: Send + Sync {
     /// The shortest gap allowed between two checks. It can depend on the
     /// settings, e.g. an API key usually raises a service's rate limit.
     fn min_interval(&self, settings: &ProviderSettings) -> Duration;
+
+    /// How long to wait between two requests to the same site in one run.
+    fn pause(&self) -> Duration {
+        Duration::ZERO
+    }
 
     /// Find candidate images. They may be incomplete (e.g. no tags yet).
     async fn list(&self, ctx: &Ctx) -> Result<Vec<Wallpaper>>;

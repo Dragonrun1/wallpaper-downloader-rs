@@ -16,6 +16,22 @@ use super::schedule::now_secs;
 use super::storage::{self, Cleanup};
 use crate::library::{Entry, Library};
 
+/// At most this many candidates are tried per check, so a provider whose
+/// images keep getting rejected can't cause a flood of requests.
+const MAX_ATTEMPTS: usize = 8;
+
+/// A candidate we looked at and chose not to keep (not an error).
+#[derive(Debug)]
+struct Skipped(String);
+
+impl std::fmt::Display for Skipped {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for Skipped {}
+
 pub type HarvestResult = (ProviderId, Result<Option<Entry>>);
 
 pub struct HarvestReport {
@@ -56,11 +72,16 @@ pub async fn harvest(
 
     let mut set = JoinSet::new();
     for &id in providers {
+        let known: Arc<dyn Fn(&str) -> bool + Send + Sync> = {
+            let library = library.clone();
+            Arc::new(move |image_id| library.lock().unwrap().contains(id, image_id))
+        };
         let ctx = Ctx {
             client: client.clone(),
             keywords: keyword.clone(),
             resolution: cfg.resolution.clone(),
             settings: cfg.settings_for(id),
+            known,
         };
         let (library, dir, forbidden) = (library.clone(), dir.clone(), cfg.forbidden_tags.clone());
         set.spawn(async move {
@@ -111,6 +132,7 @@ pub async fn harvest_one(
         .with_context(|| format!("{}: could not list wallpapers", provider.label()))?;
 
     let mut last_error = None;
+    let mut attempts = 0;
     for candidate in candidates {
         if library.lock().unwrap().contains(provider, &candidate.id)
             || has_forbidden_tag(&candidate.tags, forbidden)
@@ -118,6 +140,14 @@ pub async fn harvest_one(
         {
             continue;
         }
+
+        if attempts >= MAX_ATTEMPTS {
+            break;
+        }
+        if attempts > 0 {
+            tokio::time::sleep(source.pause()).await;
+        }
+        attempts += 1;
 
         let wallpaper = match source.details(ctx, candidate).await {
             Ok(w) => w,
@@ -139,6 +169,7 @@ pub async fn harvest_one(
                 library.lock().unwrap().insert(entry.clone());
                 return Ok(Some(entry));
             }
+            Err(e) if e.downcast_ref::<Skipped>().is_some() => continue,
             Err(e) => {
                 let e = e.context(format!("{}: download of {} failed", provider.label(), wallpaper.id));
                 if rate_limit(&e).is_some() {
@@ -165,7 +196,10 @@ async fn download(ctx: &Ctx, wallpaper: &Wallpaper, dir: &Path) -> Result<Entry>
     let size = imagesize::blob_size(&bytes)
         .map_err(|e| anyhow!("downloaded data is not a readable image: {e}"))?;
     if !ctx.resolution.accepts(size.width as u32, size.height as u32) {
-        bail!("image is {}x{}, which doesn't fit the resolution settings", size.width, size.height);
+        return Err(anyhow::Error::new(Skipped(format!(
+            "image is {}x{}, which doesn't fit the resolution settings",
+            size.width, size.height
+        ))));
     }
     let ext = match imagesize::image_type(&bytes) {
         Ok(imagesize::ImageType::Jpeg) => "jpg",
@@ -234,7 +268,18 @@ mod tests {
             .join("wallpaper-downloader-test")
             .to_string_lossy()
             .into_owned();
-        cfg.settings.get_mut(ProviderId::Bing.key()).unwrap().enabled = true;
+        // WD_LIVE=bing,unsplash picks providers (default: wallhaven,bing);
+        // credentials come from WD_UNSPLASH_KEY, WD_DEVIANTART_ID and WD_DEVIANTART_SECRET.
+        let wanted = std::env::var("WD_LIVE").unwrap_or_else(|_| "wallhaven,bing".into());
+        for id in ProviderId::ALL {
+            let on = wanted.split(',').any(|k| k.trim() == id.key());
+            cfg.settings.entry(id.key().to_owned()).or_default().enabled = on;
+        }
+        let env = |name: &str| std::env::var(name).ok();
+        cfg.settings.entry("unsplash".into()).or_default().api_key = env("WD_UNSPLASH_KEY");
+        let deviantart = cfg.settings.entry("deviantart".into()).or_default();
+        deviantart.api_key = env("WD_DEVIANTART_ID");
+        deviantart.api_secret = env("WD_DEVIANTART_SECRET");
 
         let library = Arc::new(Mutex::new(Library::default()));
         let report = harvest_all(&cfg, library.clone()).await.unwrap();
@@ -271,8 +316,11 @@ mod tests {
                 sorts: &[],
                 keywords: false,
                 api_key: super::super::KeyUse::None,
+                key_label: "",
+                secret_label: None,
                 market: false,
                 purity: false,
+                help: "",
             }
         }
         fn min_interval(&self, _: &super::super::ProviderSettings) -> Duration {
@@ -295,15 +343,7 @@ mod tests {
     #[tokio::test]
     async fn a_rate_limit_stops_the_run_instead_of_trying_the_next_candidate() {
         let source = Throttled { details_calls: Default::default() };
-        let ctx = Ctx {
-            client: reqwest::Client::new(),
-            keywords: String::new(),
-            resolution: super::super::ResolutionFilter {
-                policy: super::super::ResolutionPolicy::Any,
-                targets: Vec::new(),
-            },
-            settings: Default::default(),
-        };
+        let ctx = super::super::test_ctx();
         let library = Mutex::new(Library::default());
         let dir = std::env::temp_dir().join("wd-ratelimit-test");
 

@@ -16,7 +16,12 @@ export struct ProviderCard {
     sort-options: [string], // empty = this provider has no sort setting
     sort-index: int,        // 0 = provider default
     has-key: bool,
+    key-label: string,
+    key-required: bool,
     api-key: string,
+    has-secret: bool,
+    secret-label: string,
+    api-secret: string,
     has-market: bool,
     market: string,
     has-purity: bool,
@@ -158,14 +163,26 @@ component ProviderCardView inherits VerticalLayout {
             }
             if root.card.has-key : HorizontalBox {
                 Text {
-                    text: @tr("API key");
+                    text: root.card.key-label;
                     vertical-alignment: center;
                 }
                 LineEdit {
                     text: root.card.api-key;
-                    placeholder-text: @tr("Optional");
+                    placeholder-text: root.card.key-required ? @tr("Required") : @tr("Optional");
                     horizontal-stretch: 1;
                     edited(t) => { ProvidersState.card-text(root.index, "api-key", t); }
+                }
+            }
+            if root.card.has-secret : HorizontalBox {
+                Text {
+                    text: root.card.secret-label;
+                    vertical-alignment: center;
+                }
+                LineEdit {
+                    text: root.card.api-secret;
+                    placeholder-text: @tr("Required");
+                    horizontal-stretch: 1;
+                    edited(t) => { ProvidersState.card-text(root.index, "api-secret", t); }
                 }
             }
             if root.card.has-market : HorizontalBox {
