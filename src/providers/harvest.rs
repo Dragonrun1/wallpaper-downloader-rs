@@ -11,6 +11,7 @@ use anyhow::{anyhow, bail, Context, Result};
 use tokio::task::JoinSet;
 
 use super::{Ctx, ProviderId, ProvidersConfig, Source, Wallpaper};
+use super::net::{check_status, rate_limit};
 use super::schedule::now_secs;
 use super::storage::{self, Cleanup};
 use crate::library::{Entry, Library};
@@ -121,7 +122,11 @@ pub async fn harvest_one(
         let wallpaper = match source.details(ctx, candidate).await {
             Ok(w) => w,
             Err(e) => {
-                last_error = Some(e.context(format!("{}: details failed", provider.label())));
+                let e = e.context(format!("{}: details failed", provider.label()));
+                if rate_limit(&e).is_some() {
+                    return Err(e); // told to slow down: don't try the next candidate
+                }
+                last_error = Some(e);
                 continue;
             }
         };
@@ -135,7 +140,11 @@ pub async fn harvest_one(
                 return Ok(Some(entry));
             }
             Err(e) => {
-                last_error = Some(e.context(format!("{}: download of {} failed", provider.label(), wallpaper.id)));
+                let e = e.context(format!("{}: download of {} failed", provider.label(), wallpaper.id));
+                if rate_limit(&e).is_some() {
+                    return Err(e);
+                }
+                last_error = Some(e);
             }
         }
     }
@@ -147,12 +156,7 @@ pub async fn harvest_one(
 }
 
 async fn download(ctx: &Ctx, wallpaper: &Wallpaper, dir: &Path) -> Result<Entry> {
-    let bytes = ctx
-        .client
-        .get(&wallpaper.image_url)
-        .send()
-        .await?
-        .error_for_status()?
+    let bytes = check_status(ctx.client.get(&wallpaper.image_url).send().await?)?
         .bytes()
         .await?;
 
@@ -250,6 +254,65 @@ mod tests {
         let tags = vec!["Landscape".to_string(), "Night Sky".to_string()];
         assert!(has_forbidden_tag(&tags, &["night".into()]));
         assert!(!has_forbidden_tag(&tags, &["portrait".into(), "  ".into()]));
+    }
+
+    /// Hands out three candidates, but its `details` always says "slow down".
+    struct Throttled {
+        details_calls: std::sync::atomic::AtomicUsize,
+    }
+
+    #[async_trait::async_trait]
+    impl Source for Throttled {
+        fn id(&self) -> ProviderId {
+            ProviderId::Wallhaven
+        }
+        fn capabilities(&self) -> super::super::Capabilities {
+            super::super::Capabilities {
+                sorts: &[],
+                keywords: false,
+                api_key: super::super::KeyUse::None,
+                market: false,
+                purity: false,
+            }
+        }
+        fn min_interval(&self, _: &super::super::ProviderSettings) -> Duration {
+            Duration::from_secs(60)
+        }
+        async fn list(&self, _: &Ctx) -> Result<Vec<Wallpaper>> {
+            Ok(["a", "b", "c"]
+                .into_iter()
+                .map(|id| Wallpaper::new(ProviderId::Wallhaven, id, "https://example.invalid/x.jpg"))
+                .collect())
+        }
+        async fn details(&self, _: &Ctx, _: Wallpaper) -> Result<Wallpaper> {
+            self.details_calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Err(anyhow::Error::new(super::super::net::RateLimited {
+                retry_after: Some(Duration::from_secs(90)),
+            }))
+        }
+    }
+
+    #[tokio::test]
+    async fn a_rate_limit_stops_the_run_instead_of_trying_the_next_candidate() {
+        let source = Throttled { details_calls: Default::default() };
+        let ctx = Ctx {
+            client: reqwest::Client::new(),
+            keywords: String::new(),
+            resolution: super::super::ResolutionFilter {
+                policy: super::super::ResolutionPolicy::Any,
+                targets: Vec::new(),
+            },
+            settings: Default::default(),
+        };
+        let library = Mutex::new(Library::default());
+        let dir = std::env::temp_dir().join("wd-ratelimit-test");
+
+        let error = harvest_one(&source, &ctx, &library, &dir, &[]).await.unwrap_err();
+        assert_eq!(
+            rate_limit(&error).unwrap().retry_after,
+            Some(Duration::from_secs(90))
+        );
+        assert_eq!(source.details_calls.load(std::sync::atomic::Ordering::SeqCst), 1);
     }
 
     #[test]

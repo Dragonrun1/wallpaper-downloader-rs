@@ -5,6 +5,7 @@ use async_trait::async_trait;
 use reqwest::RequestBuilder;
 use serde::Deserialize;
 
+use super::net::check_status;
 use super::{
     Capabilities, Ctx, KeyUse, ProviderId, ProviderSettings, ResolutionFilter, ResolutionPolicy, Sort,
     Source, Wallpaper,
@@ -139,13 +140,10 @@ impl Source for Wallhaven {
         ];
         query.extend(resolution_param(&ctx.resolution));
 
-        let response: SearchResponse = get(ctx, &format!("{BASE_URL}/search"))
-            .query(&query)
-            .send()
-            .await?
-            .error_for_status()?
-            .json()
-            .await?;
+        let response: SearchResponse =
+            check_status(get(ctx, &format!("{BASE_URL}/search")).query(&query).send().await?)?
+                .json()
+                .await?;
 
         Ok(response
             .data
@@ -163,12 +161,10 @@ impl Source for Wallhaven {
 
     /// Search results carry no tags or uploader, so fetch them per image.
     async fn details(&self, ctx: &Ctx, mut wallpaper: Wallpaper) -> Result<Wallpaper> {
-        let response: DetailResponse = get(ctx, &format!("{BASE_URL}/w/{}", wallpaper.id))
-            .send()
-            .await?
-            .error_for_status()?
-            .json()
-            .await?;
+        let response: DetailResponse =
+            check_status(get(ctx, &format!("{BASE_URL}/w/{}", wallpaper.id)).send().await?)?
+                .json()
+                .await?;
 
         wallpaper.tags = response.data.tags.into_iter().map(|t| t.name).collect();
         wallpaper.author = response.data.uploader.map(|u| u.username);

@@ -11,10 +11,21 @@ use std::{
 use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
 
-use super::{harvest::HarvestResult, ProviderId, ProvidersConfig};
+use super::{
+    harvest::HarvestResult,
+    net::{rate_limit, RateLimited},
+    ProviderId, ProvidersConfig,
+};
 
 /// Failed checks wait longer each time, up to this.
 const MAX_BACKOFF: Duration = Duration::from_secs(6 * 3600);
+
+/// The longest we'll honour a service's `Retry-After`.
+pub const MAX_RETRY_AFTER: Duration = Duration::from_secs(24 * 3600);
+
+/// How long to wait after a rate limit that didn't say how long (it doubles
+/// with each consecutive failure).
+const DEFAULT_RATE_LIMIT_WAIT: Duration = Duration::from_secs(15 * 60);
 
 pub fn now_secs() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs())
@@ -129,6 +140,8 @@ pub struct ProviderRun {
     /// Consecutive failures; reset by a success.
     pub failures: u32,
     pub last_error: Option<String>,
+    /// Unix seconds. A service asked us to wait: no check before this, manual or not.
+    pub not_before: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -198,7 +211,8 @@ impl Runs {
             Trigger::Scheduled => interval(cfg, id).max(backoff(run.failures, floor)),
         };
         // A clock that moved backwards must not freeze the provider for ages
-        let ready_at = run.last_attempt.min(now) + gap.as_secs();
+        let not_before = run.not_before.min(now + MAX_RETRY_AFTER.as_secs());
+        let ready_at = (run.last_attempt.min(now) + gap.as_secs()).max(not_before);
         if now >= ready_at {
             Check::Run
         } else {
@@ -211,8 +225,10 @@ impl Runs {
         if !cfg.settings_for(id).enabled {
             return "Disabled".to_owned();
         }
+        let limited = self.get(id).is_some_and(|run| run.not_before > now);
         let next = match self.check(cfg, id, Trigger::Scheduled, now) {
             Check::Run => "Due now".to_owned(),
+            Check::Wait(d) if limited => format!("Rate limited by the service · next check in {}", fmt_duration(d)),
             Check::Wait(d) => format!("Next check in {}", fmt_duration(d)),
             Check::Off => "Automatic checks are off".to_owned(),
         };
@@ -243,24 +259,41 @@ impl Runs {
     /// Note that a provider was checked. `error` is `None` on success
     /// (including "nothing new").
     pub fn record(&mut self, id: ProviderId, now: u64, error: Option<String>) {
-        let run = self.providers.entry(id.key().to_owned()).or_default();
-        run.last_attempt = now;
         match error {
             None => {
+                let run = self.providers.entry(id.key().to_owned()).or_default();
+                run.last_attempt = now;
                 run.last_success = now;
                 run.failures = 0;
                 run.last_error = None;
+                run.not_before = 0;
             }
-            Some(e) => {
-                run.failures = run.failures.saturating_add(1);
-                run.last_error = Some(e);
-            }
+            Some(e) => self.record_failure(id, now, e, None),
+        }
+    }
+
+    /// Note a failed check. If the service asked us to slow down, honour its
+    /// `Retry-After`, or wait a growing default when it didn't say.
+    pub fn record_failure(&mut self, id: ProviderId, now: u64, error: String, limited: Option<&RateLimited>) {
+        let run = self.providers.entry(id.key().to_owned()).or_default();
+        run.last_attempt = now;
+        run.failures = run.failures.saturating_add(1);
+        run.last_error = Some(error);
+        if let Some(limit) = limited {
+            let wait = limit
+                .retry_after
+                .map(|d| d.min(MAX_RETRY_AFTER))
+                .unwrap_or_else(|| backoff(run.failures, DEFAULT_RATE_LIMIT_WAIT));
+            run.not_before = now + wait.as_secs();
         }
     }
 
     pub fn record_all(&mut self, results: &[HarvestResult], now: u64) {
         for (id, result) in results {
-            self.record(*id, now, result.as_ref().err().map(|e| format!("{e:#}")));
+            match result {
+                Ok(_) => self.record(*id, now, None),
+                Err(e) => self.record_failure(*id, now, format!("{e:#}"), rate_limit(e)),
+            }
         }
     }
 }
@@ -379,6 +412,53 @@ mod tests {
             runs.check(&cfg, ProviderId::Wallhaven, Trigger::Scheduled, 500),
             Check::Wait(d) if d <= interval(&cfg, ProviderId::Wallhaven)
         ));
+    }
+
+    #[test]
+    fn a_rate_limit_blocks_checks_until_the_service_says_so() {
+        let mut cfg = cfg();
+        cfg.schedule.interval = Interval { every: 1, unit: Unit::Minutes }; // would otherwise be quick
+        let mut runs = Runs::default();
+        let limit = RateLimited { retry_after: Some(Duration::from_secs(2 * HOUR)) };
+        runs.record_failure(ProviderId::Wallhaven, 10_000, "rate limited".into(), Some(&limit));
+
+        let wait = |trigger, now| runs.check(&cfg, ProviderId::Wallhaven, trigger, now);
+        assert_eq!(wait(Trigger::Scheduled, 10_000 + HOUR), Check::Wait(Duration::from_secs(HOUR)));
+        assert_eq!(wait(Trigger::Manual, 10_000 + HOUR), Check::Wait(Duration::from_secs(HOUR))); // manual too
+        assert_eq!(wait(Trigger::Scheduled, 10_000 + 2 * HOUR), Check::Run);
+        assert!(runs
+            .describe(&cfg, ProviderId::Wallhaven, 10_000 + HOUR)
+            .starts_with("Rate limited by the service · next check in 1h"));
+    }
+
+    #[test]
+    fn a_rate_limit_without_a_wait_backs_off_and_a_success_clears_it() {
+        let mut runs = Runs::default();
+        let limit = RateLimited { retry_after: None };
+        runs.record_failure(ProviderId::Wallhaven, 1_000, "x".into(), Some(&limit));
+        let first = runs.get(ProviderId::Wallhaven).unwrap().not_before - 1_000;
+        runs.record_failure(ProviderId::Wallhaven, 1_000, "x".into(), Some(&limit));
+        let second = runs.get(ProviderId::Wallhaven).unwrap().not_before - 1_000;
+        assert!(first >= DEFAULT_RATE_LIMIT_WAIT.as_secs());
+        assert_eq!(second, first * 2);
+
+        runs.record(ProviderId::Wallhaven, 5_000, None);
+        assert_eq!(runs.get(ProviderId::Wallhaven).unwrap().not_before, 0);
+    }
+
+    #[test]
+    fn an_absurd_retry_after_is_capped() {
+        let mut runs = Runs::default();
+        let limit = RateLimited { retry_after: Some(Duration::from_secs(30 * 86_400)) };
+        runs.record_failure(ProviderId::Bing, 1_000, "x".into(), Some(&limit));
+        assert_eq!(runs.get(ProviderId::Bing).unwrap().not_before, 1_000 + MAX_RETRY_AFTER.as_secs());
+    }
+
+    #[test]
+    fn an_old_run_log_without_not_before_still_loads() {
+        let old = "[providers.bing]\nlast_attempt = 5\nlast_success = 5\nfailures = 0\n";
+        let runs: Runs = toml::from_str(old).unwrap();
+        assert_eq!(runs.get(ProviderId::Bing).unwrap().not_before, 0);
     }
 
     #[test]

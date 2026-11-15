@@ -7,10 +7,10 @@ use crate::{
         schedule::{fmt_duration, Trigger},
         service::{Service, Start},
     },
+    providers_tab::refresh_status,
     saver::Saver,
     AppTray, MainWindow, ProvidersState,
 };
-use crate::providers_tab::refresh_status;
 
 /// Keep this alive for as long as the app runs; it owns the schedule timer.
 pub struct Background {
@@ -109,7 +109,7 @@ fn run(weak: &Weak<MainWindow>, service: &Service, saver: &Saver, trigger: Trigg
             }
             for (id, wait) in waiting {
                 lines.push(format!(
-                    "{}: checked recently, next check allowed in {}",
+                    "{}: can't check yet, next check allowed in {}",
                     id.label(),
                     fmt_duration(wait)
                 ));

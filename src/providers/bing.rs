@@ -4,6 +4,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use serde::Deserialize;
 
+use super::net::check_status;
 use super::{
     Capabilities, Ctx, KeyUse, ProviderId, ProviderSettings, ResolutionFilter, ResolutionPolicy, Source,
     Wallpaper,
@@ -49,13 +50,13 @@ impl Source for Bing {
     /// has gets skipped, so this also covers "today's was already downloaded".
     async fn list(&self, ctx: &Ctx) -> Result<Vec<Wallpaper>> {
         let market = market(ctx.settings.market.as_deref());
-        let archive: Archive = ctx
-            .client
-            .get(ARCHIVE_URL)
-            .query(&[("format", "js"), ("idx", "0"), ("n", "8"), ("mkt", market.as_str())])
-            .send()
-            .await?
-            .error_for_status()?
+        let archive: Archive = check_status(
+            ctx.client
+                .get(ARCHIVE_URL)
+                .query(&[("format", "js"), ("idx", "0"), ("n", "8"), ("mkt", market.as_str())])
+                .send()
+                .await?,
+        )?
             .json()
             .await?;
 

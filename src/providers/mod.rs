@@ -3,6 +3,7 @@
 
 pub mod bing;
 pub mod harvest;
+pub mod net;
 pub mod schedule;
 pub mod service;
 pub mod storage;
