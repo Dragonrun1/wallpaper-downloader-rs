@@ -2,6 +2,8 @@
 name = "wallpaper-downloader-rs"
 version = "0.1.0"
 edition = "2024"
+description = "A tray app that downloads wallpapers from several online sources and changes your desktop background on a schedule. Built with Rust and Slint."
+authors = ["Micahel Cummings <mgcummings@yahoo.com>"]
 
 [dependencies]
 anyhow = "1.0.104"
