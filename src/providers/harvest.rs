@@ -268,15 +268,14 @@ mod tests {
             .join("wallpaper-downloader-test")
             .to_string_lossy()
             .into_owned();
-        // WD_LIVE=bing,unsplash picks providers (default: wallhaven,bing);
-        // credentials come from WD_UNSPLASH_KEY, WD_DEVIANTART_ID and WD_DEVIANTART_SECRET.
+        // WD_LIVE=bing,deviantart picks providers (default: wallhaven,bing);
+        // credentials come from WD_DEVIANTART_ID and WD_DEVIANTART_SECRET.
         let wanted = std::env::var("WD_LIVE").unwrap_or_else(|_| "wallhaven,bing".into());
         for id in ProviderId::ALL {
             let on = wanted.split(',').any(|k| k.trim() == id.key());
             cfg.settings.entry(id.key().to_owned()).or_default().enabled = on;
         }
         let env = |name: &str| std::env::var(name).ok();
-        cfg.settings.entry("unsplash".into()).or_default().api_key = env("WD_UNSPLASH_KEY");
         let deviantart = cfg.settings.entry("deviantart".into()).or_default();
         deviantart.api_key = env("WD_DEVIANTART_ID");
         deviantart.api_secret = env("WD_DEVIANTART_SECRET");

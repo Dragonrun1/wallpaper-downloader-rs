@@ -40,7 +40,7 @@ pub fn check_status(response: Response) -> Result<Response> {
         .and_then(|v| v.to_str().ok())
         .and_then(|v| parse_retry_after(v, SystemTime::now()));
 
-    // Some services (Unsplash) report an exhausted quota as 403 with this header
+    // Some services report an exhausted quota as 403 with this header
     let quota_spent = status == StatusCode::FORBIDDEN
         && response
         .headers()

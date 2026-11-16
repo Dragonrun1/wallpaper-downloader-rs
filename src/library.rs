@@ -49,12 +49,45 @@ impl Library {
     pub fn load() -> Self {
         let Some(path) = Self::path() else { return Self::default() };
         match fs::read(&path) {
-            Ok(bytes) => serde_json::from_slice(&bytes).unwrap_or_else(|e| {
-                eprintln!("Ignoring invalid library {}: {e}", path.display());
-                Self::default()
-            }),
+            Ok(bytes) => match Self::from_json(&bytes) {
+                Ok((library, skipped)) => {
+                    if skipped > 0 {
+                        eprintln!("Library: skipped {skipped} entr(ies) that could not be read (e.g. from a removed provider)");
+                    }
+                    library
+                }
+                Err(e) => {
+                    eprintln!("Ignoring invalid library {}: {e}", path.display());
+                    Self::default()
+                }
+            },
             Err(_) => Self::default(),
         }
+    }
+
+    /// Reads the library one entry at a time, so a single entry that can't be
+    /// understood (say, one from a provider that has since been removed) is
+    /// skipped instead of discarding everything. Also returns how many were skipped.
+    fn from_json(bytes: &[u8]) -> Result<(Self, usize), serde_json::Error> {
+        #[derive(Deserialize, Default)]
+        #[serde(default)]
+        struct Raw {
+            dir: Option<String>,
+            entries: BTreeMap<String, serde_json::Value>,
+        }
+
+        let raw: Raw = serde_json::from_slice(bytes)?;
+        let mut library = Self { dir: raw.dir, entries: BTreeMap::new() };
+        let mut skipped = 0;
+        for (key, value) in raw.entries {
+            match serde_json::from_value::<Entry>(value) {
+                Ok(entry) => {
+                    library.entries.insert(key, entry);
+                }
+                Err(_) => skipped += 1,
+            }
+        }
+        Ok((library, skipped))
     }
 
     pub fn save(&self) -> io::Result<()> {
@@ -184,6 +217,31 @@ mod tests {
         assert!(lib.bind_dir(Path::new("/pictures/b"))); // different folder
         assert_eq!(lib.len(), 0);
         assert!(!lib.contains(ProviderId::Wallhaven, "x")); // not blocked, just not tracked here
+    }
+
+    #[test]
+    fn an_entry_from_a_removed_provider_is_skipped_not_fatal() {
+        let mut lib = Library::default();
+        lib.insert(entry("keep", "keep.jpg"));
+        let mut json: serde_json::Value = serde_json::to_value(&lib).unwrap();
+        // an entry whose provider no longer exists, next to the good one
+        let mut gone = json["entries"]["wallhaven:keep"].clone();
+        gone["provider"] = "unsplash".into();
+        gone["id"] = "old".into();
+        json["entries"]["unsplash:old"] = gone;
+        // and one that is simply malformed
+        json["entries"]["wallhaven:broken"] = serde_json::json!({"nonsense": true});
+
+        let (loaded, skipped) = Library::from_json(json.to_string().as_bytes()).unwrap();
+        assert_eq!(skipped, 2);
+        assert_eq!(loaded.len(), 1);
+        assert!(loaded.contains(ProviderId::Wallhaven, "keep"));
+    }
+
+    #[test]
+    fn a_library_that_is_not_json_at_all_is_still_an_error() {
+        assert!(Library::from_json(b"not json").is_err());
+        assert!(Library::from_json(b"{}").unwrap().0.len() == 0);
     }
 
     #[test]

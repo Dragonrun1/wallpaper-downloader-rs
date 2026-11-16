@@ -10,7 +10,6 @@ pub mod schedule;
 pub mod scrape;
 pub mod service;
 pub mod storage;
-pub mod unsplash;
 pub mod wallpaper_fusion;
 pub mod wallhaven;
 
@@ -32,17 +31,15 @@ pub enum ProviderId {
     Bing,
     DeviantArt,
     DualMonitor,
-    Unsplash,
     Wallhaven,
     WallpaperFusion,
 }
 
 impl ProviderId {
-    pub const ALL: [ProviderId; 6] = [
+    pub const ALL: [ProviderId; 5] = [
         Self::Bing,
         Self::DeviantArt,
         Self::DualMonitor,
-        Self::Unsplash,
         Self::Wallhaven,
         Self::WallpaperFusion,
     ];
@@ -53,7 +50,6 @@ impl ProviderId {
             Self::Bing => "bing",
             Self::DeviantArt => "deviantart",
             Self::DualMonitor => "dual-monitor",
-            Self::Unsplash => "unsplash",
             Self::Wallhaven => "wallhaven",
             Self::WallpaperFusion => "wallpaper-fusion",
         }
@@ -68,7 +64,6 @@ impl ProviderId {
             Self::Bing => "Bing Photo of the Day",
             Self::DeviantArt => "DeviantArt",
             Self::DualMonitor => "Dual Monitor Backgrounds",
-            Self::Unsplash => "Unsplash",
             Self::Wallhaven => "Wallhaven",
             Self::WallpaperFusion => "WallpaperFusion",
         }
@@ -79,7 +74,6 @@ impl ProviderId {
             Self::Bing => Box::new(bing::Bing),
             Self::DeviantArt => Box::new(deviantart::DeviantArt),
             Self::DualMonitor => Box::new(dual_monitor::DualMonitor),
-            Self::Unsplash => Box::new(unsplash::Unsplash),
             Self::Wallhaven => Box::new(wallhaven::Wallhaven),
             Self::WallpaperFusion => Box::new(wallpaper_fusion::WallpaperFusion),
         }
@@ -252,6 +246,9 @@ pub struct Wallpaper {
     pub title: Option<String>,
     pub description: Option<String>,
     pub author: Option<String>,
+    /// Where to find the author, for crediting them.
+    #[serde(default)]
+    pub author_url: Option<String>,
     pub tags: Vec<String>,
     pub width: Option<u32>,
     pub height: Option<u32>,
@@ -269,6 +266,7 @@ impl Wallpaper {
             title: None,
             description: None,
             author: None,
+            author_url: None,
             tags: Vec::new(),
             width: None,
             height: None,
@@ -473,6 +471,15 @@ mod tests {
         assert_eq!(back.enabled(), vec![ProviderId::Wallhaven]);
         assert_eq!(back.settings_for(ProviderId::Bing).interval, cfg.settings_for(ProviderId::Bing).interval);
         assert_eq!(back.schedule.interval, cfg.schedule.interval);
+    }
+
+    #[test]
+    fn library_entries_saved_before_the_new_fields_still_load() {
+        let old = r#"{"provider":"bing","id":"abc","image_url":"https://x/y.jpg","page_url":null,"title":null,
+            "description":null,"author":"Jane","tags":[],"width":10,"height":10,"rating":null,"favorites":null}"#;
+        let w: Wallpaper = serde_json::from_str(old).unwrap();
+        assert_eq!(w.author.as_deref(), Some("Jane"));
+        assert!(w.author_url.is_none());
     }
 
     #[test]

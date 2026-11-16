@@ -399,8 +399,6 @@ mod tests {
                 "Bing Photo of the Day",
                 "DeviantArt",
                 "Dual Monitor Backgrounds",
-                "Social Wallpapering",
-                "Unsplash",
                 "Wallhaven",
                 "WallpaperFusion",
             ]
@@ -455,9 +453,6 @@ mod tests {
         assert_eq!((deviantart.key_label.as_str(), deviantart.secret_label.as_str()), ("Client ID", "Client secret"));
         assert_eq!(deviantart.sort_options.row_count(), 3); // "Default" + Top + Newest
 
-        let unsplash = card_from(&cfg, ProviderId::Unsplash, String::new());
-        assert!(unsplash.key_required && !unsplash.has_secret);
-        assert_eq!(unsplash.key_label, "Access key");
     }
 
     #[test]
