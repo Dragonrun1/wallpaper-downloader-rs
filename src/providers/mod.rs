@@ -9,7 +9,6 @@ pub mod net;
 pub mod schedule;
 pub mod scrape;
 pub mod service;
-pub mod social_wallpapering;
 pub mod storage;
 pub mod unsplash;
 pub mod wallpaper_fusion;
@@ -33,18 +32,16 @@ pub enum ProviderId {
     Bing,
     DeviantArt,
     DualMonitor,
-    SocialWallpapering,
     Unsplash,
     Wallhaven,
     WallpaperFusion,
 }
 
 impl ProviderId {
-    pub const ALL: [ProviderId; 7] = [
+    pub const ALL: [ProviderId; 6] = [
         Self::Bing,
         Self::DeviantArt,
         Self::DualMonitor,
-        Self::SocialWallpapering,
         Self::Unsplash,
         Self::Wallhaven,
         Self::WallpaperFusion,
@@ -56,7 +53,6 @@ impl ProviderId {
             Self::Bing => "bing",
             Self::DeviantArt => "deviantart",
             Self::DualMonitor => "dual-monitor",
-            Self::SocialWallpapering => "social-wallpapering",
             Self::Unsplash => "unsplash",
             Self::Wallhaven => "wallhaven",
             Self::WallpaperFusion => "wallpaper-fusion",
@@ -72,7 +68,6 @@ impl ProviderId {
             Self::Bing => "Bing Photo of the Day",
             Self::DeviantArt => "DeviantArt",
             Self::DualMonitor => "Dual Monitor Backgrounds",
-            Self::SocialWallpapering => "Social Wallpapering",
             Self::Unsplash => "Unsplash",
             Self::Wallhaven => "Wallhaven",
             Self::WallpaperFusion => "WallpaperFusion",
@@ -84,7 +79,6 @@ impl ProviderId {
             Self::Bing => Box::new(bing::Bing),
             Self::DeviantArt => Box::new(deviantart::DeviantArt),
             Self::DualMonitor => Box::new(dual_monitor::DualMonitor),
-            Self::SocialWallpapering => Box::new(social_wallpapering::SocialWallpapering),
             Self::Unsplash => Box::new(unsplash::Unsplash),
             Self::Wallhaven => Box::new(wallhaven::Wallhaven),
             Self::WallpaperFusion => Box::new(wallpaper_fusion::WallpaperFusion),
