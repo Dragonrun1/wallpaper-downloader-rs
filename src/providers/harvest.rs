@@ -116,6 +116,62 @@ pub async fn harvest(
     Ok(HarvestReport { results, cleanup })
 }
 
+/// What came of trying one candidate.
+enum Attempt {
+    /// Downloaded and recorded.
+    Saved(Entry),
+    /// Not wanted (a forbidden tag, the wrong size). Not an error.
+    Passed,
+    /// Something went wrong; remember it and try the next candidate.
+    Failed(anyhow::Error),
+    /// The service told us to slow down: stop the whole check.
+    Stop(anyhow::Error),
+}
+
+/// A failure, or a reason to stop if the service asked us to back off.
+fn failure(error: anyhow::Error) -> Attempt {
+    if rate_limit(&error).is_some() {
+        Attempt::Stop(error)
+    } else {
+        Attempt::Failed(error)
+    }
+}
+
+/// Worth a request at all? Judged from what the listing already tells us.
+fn is_wanted(ctx: &Ctx, library: &Mutex<Library>, forbidden: &[String], candidate: &Wallpaper) -> bool {
+    !library.lock().unwrap().contains(candidate.provider, &candidate.id)
+        && !has_forbidden_tag(&candidate.tags, forbidden)
+        && size_fits(&ctx.resolution, candidate)
+}
+
+/// Fetch the candidate's details, check them again, then download and record it.
+async fn try_candidate(
+    source: &dyn Source,
+    ctx: &Ctx,
+    library: &Mutex<Library>,
+    dir: &Path,
+    forbidden: &[String],
+    candidate: Wallpaper,
+) -> Attempt {
+    let label = source.id().label();
+    let wallpaper = match source.details(ctx, candidate).await {
+        Ok(wallpaper) => wallpaper,
+        Err(e) => return failure(e.context(format!("{label}: details failed"))),
+    };
+    if has_forbidden_tag(&wallpaper.tags, forbidden) {
+        return Attempt::Passed;
+    }
+
+    match download(ctx, &wallpaper, dir).await {
+        Ok(entry) => {
+            library.lock().unwrap().insert(entry.clone());
+            Attempt::Saved(entry)
+        }
+        Err(e) if e.downcast_ref::<Skipped>().is_some() => Attempt::Passed,
+        Err(e) => failure(e.context(format!("{label}: download of {} failed", wallpaper.id))),
+    }
+}
+
 /// Download the first candidate that is new and allowed.
 /// `Ok(None)` means there was nothing new.
 pub async fn harvest_one(
@@ -125,22 +181,14 @@ pub async fn harvest_one(
     dir: &Path,
     forbidden: &[String],
 ) -> Result<Option<Entry>> {
-    let provider = source.id();
     let candidates = source
         .list(ctx)
         .await
-        .with_context(|| format!("{}: could not list wallpapers", provider.label()))?;
+        .with_context(|| format!("{}: could not list wallpapers", source.id().label()))?;
 
     let mut last_error = None;
     let mut attempts = 0;
-    for candidate in candidates {
-        if library.lock().unwrap().contains(provider, &candidate.id)
-            || has_forbidden_tag(&candidate.tags, forbidden)
-            || !size_fits(&ctx.resolution, &candidate)
-        {
-            continue;
-        }
-
+    for candidate in candidates.into_iter().filter(|c| is_wanted(ctx, library, forbidden, c)) {
         if attempts >= MAX_ATTEMPTS {
             break;
         }
@@ -149,41 +197,14 @@ pub async fn harvest_one(
         }
         attempts += 1;
 
-        let wallpaper = match source.details(ctx, candidate).await {
-            Ok(w) => w,
-            Err(e) => {
-                let e = e.context(format!("{}: details failed", provider.label()));
-                if rate_limit(&e).is_some() {
-                    return Err(e); // told to slow down: don't try the next candidate
-                }
-                last_error = Some(e);
-                continue;
-            }
-        };
-        if has_forbidden_tag(&wallpaper.tags, forbidden) {
-            continue;
-        }
-
-        match download(ctx, &wallpaper, dir).await {
-            Ok(entry) => {
-                library.lock().unwrap().insert(entry.clone());
-                return Ok(Some(entry));
-            }
-            Err(e) if e.downcast_ref::<Skipped>().is_some() => continue,
-            Err(e) => {
-                let e = e.context(format!("{}: download of {} failed", provider.label(), wallpaper.id));
-                if rate_limit(&e).is_some() {
-                    return Err(e);
-                }
-                last_error = Some(e);
-            }
+        match try_candidate(source, ctx, library, dir, forbidden, candidate).await {
+            Attempt::Saved(entry) => return Ok(Some(entry)),
+            Attempt::Passed => {}
+            Attempt::Failed(e) => last_error = Some(e),
+            Attempt::Stop(e) => return Err(e),
         }
     }
-
-    match last_error {
-        Some(e) => Err(e),
-        None => Ok(None),
-    }
+    last_error.map_or(Ok(None), Err)
 }
 
 async fn download(ctx: &Ctx, wallpaper: &Wallpaper, dir: &Path) -> Result<Entry> {
@@ -300,13 +321,32 @@ mod tests {
         assert!(!has_forbidden_tag(&tags, &["portrait".into(), "  ".into()]));
     }
 
-    /// Hands out three candidates, but its `details` always says "slow down".
-    struct Throttled {
-        details_calls: std::sync::atomic::AtomicUsize,
+    /// How the fake source's `details` behaves.
+    enum Details {
+        RateLimited,
+        Fails,
+        Tagged(&'static str),
+    }
+
+    /// A provider that hands out `candidates` images and counts `details` calls.
+    struct Fake {
+        candidates: usize,
+        details: Details,
+        calls: std::sync::atomic::AtomicUsize,
+    }
+
+    impl Fake {
+        fn new(candidates: usize, details: Details) -> Self {
+            Self { candidates, details, calls: Default::default() }
+        }
+
+        fn calls(&self) -> usize {
+            self.calls.load(std::sync::atomic::Ordering::SeqCst)
+        }
     }
 
     #[async_trait::async_trait]
-    impl Source for Throttled {
+    impl Source for Fake {
         fn id(&self) -> ProviderId {
             ProviderId::Wallhaven
         }
@@ -326,32 +366,82 @@ mod tests {
             Duration::from_secs(60)
         }
         async fn list(&self, _: &Ctx) -> Result<Vec<Wallpaper>> {
-            Ok(["a", "b", "c"]
-                .into_iter()
-                .map(|id| Wallpaper::new(ProviderId::Wallhaven, id, "https://example.invalid/x.jpg"))
+            Ok((0..self.candidates)
+                .map(|n| Wallpaper::new(ProviderId::Wallhaven, format!("id{n}"), "https://example.invalid/x.jpg"))
                 .collect())
         }
-        async fn details(&self, _: &Ctx, _: Wallpaper) -> Result<Wallpaper> {
-            self.details_calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-            Err(anyhow::Error::new(super::super::net::RateLimited {
-                retry_after: Some(Duration::from_secs(90)),
-            }))
+        async fn details(&self, _: &Ctx, mut wallpaper: Wallpaper) -> Result<Wallpaper> {
+            self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            match &self.details {
+                Details::RateLimited => Err(anyhow::Error::new(super::super::net::RateLimited {
+                    retry_after: Some(Duration::from_secs(90)),
+                })),
+                Details::Fails => Err(anyhow!("boom")),
+                Details::Tagged(tag) => {
+                    wallpaper.tags = vec![(*tag).to_owned()];
+                    Ok(wallpaper)
+                }
+            }
         }
+    }
+
+    async fn run(source: &Fake, forbidden: &[&str]) -> Result<Option<Entry>> {
+        let forbidden: Vec<String> = forbidden.iter().map(|s| s.to_string()).collect();
+        let library = Mutex::new(Library::default());
+        let dir = std::env::temp_dir().join("wd-harvest-test");
+        harvest_one(source, &super::super::test_ctx(), &library, &dir, &forbidden).await
     }
 
     #[tokio::test]
     async fn a_rate_limit_stops_the_run_instead_of_trying_the_next_candidate() {
-        let source = Throttled { details_calls: Default::default() };
-        let ctx = super::super::test_ctx();
-        let library = Mutex::new(Library::default());
-        let dir = std::env::temp_dir().join("wd-ratelimit-test");
+        let source = Fake::new(3, Details::RateLimited);
+        let error = run(&source, &[]).await.unwrap_err();
+        assert_eq!(rate_limit(&error).unwrap().retry_after, Some(Duration::from_secs(90)));
+        assert_eq!(source.calls(), 1);
+    }
 
-        let error = harvest_one(&source, &ctx, &library, &dir, &[]).await.unwrap_err();
-        assert_eq!(
-            rate_limit(&error).unwrap().retry_after,
-            Some(Duration::from_secs(90))
-        );
-        assert_eq!(source.details_calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+    #[tokio::test]
+    async fn an_ordinary_failure_moves_on_and_is_reported_at_the_end() {
+        let source = Fake::new(3, Details::Fails);
+        let error = run(&source, &[]).await.unwrap_err();
+        assert_eq!(source.calls(), 3);
+        assert!(format!("{error:#}").contains("details failed"), "{error:#}");
+        assert!(rate_limit(&error).is_none());
+    }
+
+    #[tokio::test]
+    async fn forbidden_tags_pass_candidates_over_without_downloading_or_failing() {
+        let source = Fake::new(3, Details::Tagged("People"));
+        assert!(run(&source, &["people"]).await.unwrap().is_none());
+        assert_eq!(source.calls(), 3);
+    }
+
+    #[tokio::test]
+    async fn a_check_never_tries_more_than_the_attempt_cap() {
+        let source = Fake::new(MAX_ATTEMPTS * 3, Details::Fails);
+        assert!(run(&source, &[]).await.is_err());
+        assert_eq!(source.calls(), MAX_ATTEMPTS);
+    }
+
+    #[tokio::test]
+    async fn images_already_in_the_library_cost_no_requests() {
+        let source = Fake::new(4, Details::Fails);
+        let mut ctx = super::super::test_ctx();
+        ctx.known = Arc::new(|_| true);
+        let library = Mutex::new(Library::default());
+        for n in 0..4 {
+            let entry = Entry {
+                wallpaper: Wallpaper::new(ProviderId::Wallhaven, format!("id{n}"), "https://example.invalid/x.jpg"),
+                file: format!("{n}.jpg"),
+                added: 0,
+                favorite: false,
+                blocked: false,
+            };
+            library.lock().unwrap().insert(entry);
+        }
+        let dir = std::env::temp_dir().join("wd-harvest-test");
+        assert!(harvest_one(&source, &ctx, &library, &dir, &[]).await.unwrap().is_none());
+        assert_eq!(source.calls(), 0);
     }
 
     #[test]

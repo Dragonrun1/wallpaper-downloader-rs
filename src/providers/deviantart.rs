@@ -4,7 +4,7 @@ use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use serde::Deserialize;
 
-use super::net::check_status;
+use super::net::check_status_with_body;
 use super::{Capabilities, Ctx, KeyUse, ProviderId, ProviderSettings, Sort, Source, Wallpaper};
 
 const TOKEN_URL: &str = "https://www.deviantart.com/oauth2/token";
@@ -44,6 +44,31 @@ struct Content {
     src: String,
     width: Option<u32>,
     height: Option<u32>,
+}
+
+/// DeviantArt removed its "popular" and "newest" browse endpoints, so we browse
+/// a tag instead. Tags are single words, so a keyword has its spaces removed;
+/// with none, the "wallpaper" tag is used.
+fn tag_for(keywords: &str) -> String {
+    let tag: String = keywords.chars().filter(|c| !c.is_whitespace()).flat_map(char::to_lowercase).collect();
+    if tag.is_empty() {
+        "wallpaper".to_owned()
+    } else {
+        tag
+    }
+}
+
+/// `mode` picks popular or newest first. It isn't in DeviantArt's own reference,
+/// but another client library documents it for this endpoint, and an unknown
+/// parameter is simply ignored.
+fn browse_query(keywords: &str, sort: Option<Sort>) -> Vec<(&'static str, String)> {
+    let mode = if sort == Some(Sort::Newest) { "newest" } else { "popular" };
+    vec![
+        ("tag", tag_for(keywords)),
+        ("mode", mode.to_owned()),
+        ("limit", "24".to_owned()),
+        ("mature_content", "false".to_owned()),
+    ]
 }
 
 fn credentials(settings: &ProviderSettings) -> Result<(String, String)> {
@@ -91,7 +116,7 @@ impl Source for DeviantArt {
             secret_label: Some("Client secret"),
             market: false,
             purity: false,
-            help: "Needs a free app from deviantart.com/developers. With no keyword it searches for \"wallpaper\".",
+            help: "Needs a free app from deviantart.com/developers. Browses a tag: your keyword with spaces removed, or \"wallpaper\".",
         }
     }
 
@@ -113,22 +138,16 @@ impl Source for DeviantArt {
             ])
             .send()
             .await?;
-        let token: Token = check_status(response)?.json().await?;
+        let token: Token = check_status_with_body(response).await?.json().await?;
 
-        let endpoint = match ctx.settings.sort {
-            Some(Sort::Newest) => "newest",
-            _ => "popular",
-        };
-        let keyword = ctx.keywords.trim();
-        let query = if keyword.is_empty() { "wallpaper" } else { keyword };
         let response = ctx
             .client
-            .get(format!("{API}/browse/{endpoint}"))
+            .get(format!("{API}/browse/tags"))
             .bearer_auth(&token.access_token)
-            .query(&[("q", query), ("limit", "24"), ("mature_content", "false")])
+            .query(&browse_query(&ctx.keywords, ctx.settings.sort))
             .send()
             .await?;
-        parse_browse(&check_status(response)?.text().await?)
+        parse_browse(&check_status_with_body(response).await?.text().await?)
     }
 }
 
@@ -163,6 +182,27 @@ mod tests {
         assert!(parse_browse(r#"{"results":[]}"#).unwrap().is_empty());
         assert!(parse_browse("{}").unwrap().is_empty());
         assert!(parse_browse("nope").is_err());
+    }
+
+    #[test]
+    fn keywords_become_a_single_tag() {
+        assert_eq!(tag_for(""), "wallpaper");
+        assert_eq!(tag_for("   "), "wallpaper");
+        assert_eq!(tag_for("Deep Space"), "deepspace");
+        assert_eq!(tag_for("stars"), "stars");
+    }
+
+    #[test]
+    fn the_browse_query_asks_for_a_tag_in_the_chosen_order() {
+        let get = |q: &[(&'static str, String)], key: &str| q.iter().find(|(k, _)| *k == key).map(|(_, v)| v.clone());
+        let popular = browse_query("stars", None);
+        assert_eq!(get(&popular, "tag").as_deref(), Some("stars"));
+        assert_eq!(get(&popular, "mode").as_deref(), Some("popular"));
+        assert_eq!(get(&popular, "limit").as_deref(), Some("24"));
+        assert_eq!(get(&popular, "mature_content").as_deref(), Some("false"));
+        assert_eq!(get(&browse_query("", Some(Sort::Newest)), "mode").as_deref(), Some("newest"));
+        assert_eq!(get(&browse_query("", Some(Sort::Top)), "mode").as_deref(), Some("popular"));
+        assert_eq!(get(&popular, "q"), None); // the old search parameter is gone
     }
 
     #[test]

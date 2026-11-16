@@ -29,10 +29,8 @@ impl fmt::Display for RateLimited {
 
 impl std::error::Error for RateLimited {}
 
-/// Like `Response::error_for_status`, but a "slow down" response becomes a
-/// `RateLimited` error instead of an anonymous one, so its `Retry-After`
-/// isn't lost.
-pub fn check_status(response: Response) -> Result<Response> {
+/// Is this a "slow down" response (HTTP 429, a spent quota, or 503 with `Retry-After`)?
+fn rate_limited(response: &Response) -> Option<RateLimited> {
     let status = response.status();
     let retry_after = response
         .headers()
@@ -50,10 +48,33 @@ pub fn check_status(response: Response) -> Result<Response> {
     let limited = status == StatusCode::TOO_MANY_REQUESTS
         || quota_spent
         || (status == StatusCode::SERVICE_UNAVAILABLE && retry_after.is_some());
-    if limited {
-        return Err(Error::new(RateLimited { retry_after }));
+    limited.then_some(RateLimited { retry_after })
+}
+
+/// Like `Response::error_for_status`, but a "slow down" response becomes a
+/// `RateLimited` error instead of an anonymous one, so its `Retry-After`
+/// isn't lost.
+pub fn check_status(response: Response) -> Result<Response> {
+    if let Some(limit) = rate_limited(&response) {
+        return Err(Error::new(limit));
     }
     Ok(response.error_for_status()?)
+}
+
+/// Like `check_status`, but a failure also carries the start of the response
+/// body, which usually says what was wrong (a rejected token, a missing scope).
+pub async fn check_status_with_body(response: Response) -> Result<Response> {
+    if let Some(limit) = rate_limited(&response) {
+        return Err(Error::new(limit));
+    }
+    let status = response.status();
+    if !(status.is_client_error() || status.is_server_error()) {
+        return Ok(response);
+    }
+    let url = response.url().clone();
+    let body = response.text().await.unwrap_or_default();
+    let snippet: String = body.split_whitespace().collect::<Vec<_>>().join(" ").chars().take(200).collect();
+    Err(anyhow::anyhow!("HTTP {status} for {url}: {snippet}"))
 }
 
 /// The rate-limit error inside `error`, however many layers of context wrap it.
@@ -96,6 +117,31 @@ mod tests {
         let left = http::Response::builder().status(403).header("x-ratelimit-remaining", "12").body("").unwrap();
         assert!(rate_limit(&check_status(Response::from(left)).unwrap_err()).is_none());
         assert!(rate_limit(&check_status(response(403, None)).unwrap_err()).is_none());
+    }
+
+    #[tokio::test]
+    async fn a_failure_with_a_body_says_what_the_service_said() {
+        let rejected = http::Response::builder()
+            .status(403)
+            .body(r#"{"error":"insufficient_scope",  "error_description":"The access token lacks the browse scope"}"#)
+            .unwrap();
+        let error = check_status_with_body(Response::from(rejected)).await.unwrap_err();
+        let text = error.to_string();
+        assert!(text.contains("403") && text.contains("insufficient_scope"), "{text}");
+        assert!(rate_limit(&error).is_none());
+
+        // success passes through untouched, and a 429 is still a rate limit
+        assert!(check_status_with_body(response(200, None)).await.is_ok());
+        let error = check_status_with_body(response(429, Some("5"))).await.unwrap_err();
+        assert_eq!(rate_limit(&error).unwrap().retry_after, Some(Duration::from_secs(5)));
+    }
+
+    #[tokio::test]
+    async fn a_long_body_is_shortened() {
+        let long = "x".repeat(5000);
+        let failed = http::Response::builder().status(500).body(long).unwrap();
+        let error = check_status_with_body(Response::from(failed)).await.unwrap_err();
+        assert!(error.to_string().len() < 400);
     }
 
     #[test]
