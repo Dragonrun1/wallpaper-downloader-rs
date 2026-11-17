@@ -88,6 +88,7 @@ component StringListEditor inherits VerticalLayout {
         }
         Button {
             text: @tr("Remove");
+            icon: @image-url("images/remove.png");
             clicked => { root.removed(i); }
         }
     }
@@ -104,6 +105,7 @@ component StringListEditor inherits VerticalLayout {
         Button {
             text: @tr("Add");
             enabled: input.text != "";
+            icon: @image-url("images/add-button.png");
             clicked => {
                 root.added(input.text);
                 input.text = "";
@@ -336,6 +338,7 @@ export component ProvidersPage inherits Rectangle {
                             }
                             Button {
                                 text: @tr("Remove");
+                                icon: @image-url("images/remove.png");
                                 clicked => { ProvidersState.remove-target(i); }
                             }
                         }
@@ -343,10 +346,12 @@ export component ProvidersPage inherits Rectangle {
                             alignment: start;
                             Button {
                                 text: @tr("Add size");
+                                icon: @image-url("images/add-button.png");
                                 clicked => { ProvidersState.add-target(); }
                             }
                             Button {
                                 text: @tr("Reset from screens");
+                                icon: @image-url("images/reset_from_monitors.png");
                                 clicked => { ProvidersState.reset-targets(); }
                             }
                         }
