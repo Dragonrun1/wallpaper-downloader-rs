@@ -49,12 +49,7 @@ impl Engine {
     fn save_state(&self) {
         let state = State {
             last: self.last.borrow().clone(),
-            screens: self
-                .applied
-                .borrow()
-                .iter()
-                .map(|(k, v)| (k.clone(), v.clone()))
-                .collect(),
+            screens: self.applied.borrow().iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
         };
         if let Err(e) = state.save() {
             eprintln!("Could not save state: {e}");
@@ -86,33 +81,48 @@ impl Engine {
             })
             .map_err(|e| e.to_string())?;
 
-        Ok(Outcome {
-            by_screen: usable,
-            shared: None,
-        })
+        Ok(Outcome { by_screen: usable, shared: None })
     }
 
+    /// Pick the next image(s) from the Changer's folders and apply them.
     pub fn change(&self, cfg: &ChangerConfig) -> Result<Outcome, String> {
         let images = scan(&cfg.directories);
         if images.is_empty() {
             return Err("No images found in the selected directories".into());
         }
 
-        let monitor_mode = if self.per_screen {
-            cfg.monitor_mode
-        } else {
-            MonitorMode::SameOnAll
-        };
-
+        let monitor_mode = if self.per_screen { cfg.monitor_mode } else { MonitorMode::SameOnAll };
         let builder = WallpaperBuilder::new().map_err(|e| e.to_string())?;
         let targets = target_screens(&builder, monitor_mode)?;
-        let pick_count = if monitor_mode == MonitorMode::DifferentPerMonitor {
-            targets.len()
-        } else {
-            1
-        };
+        let pick_count = if monitor_mode == MonitorMode::DifferentPerMonitor { targets.len() } else { 1 };
         let picks = self.pick(images, cfg.order, pick_count);
 
+        self.apply(builder, &targets, &picks, monitor_mode == MonitorMode::SameOnAll)
+    }
+
+    /// Use one specific image, on every screen or just the primary one.
+    pub fn set_image(&self, path: &str, primary_only: bool) -> Result<Outcome, String> {
+        if !Path::new(path).is_file() {
+            return Err(format!("{path} no longer exists"));
+        }
+        let builder = WallpaperBuilder::new().map_err(|e| e.to_string())?;
+        let mode = if primary_only && self.per_screen { MonitorMode::PrimaryOnly } else { MonitorMode::SameOnAll };
+        let targets = target_screens(&builder, mode)?;
+
+        let outcome = self.apply(builder, &targets, &[path.to_owned()], mode == MonitorMode::SameOnAll)?;
+        *self.last.borrow_mut() = Some(path.to_owned());
+        self.save_state();
+        Ok(outcome)
+    }
+
+    /// Give the target screens their pictures and leave the others as they are.
+    fn apply(
+        &self,
+        builder: WallpaperBuilder,
+        targets: &[usize],
+        picks: &[String],
+        shared: bool,
+    ) -> Result<Outcome, String> {
         let mut index = 0usize;
         let mut assigned: Vec<(String, String)> = Vec::new();
         builder
@@ -143,7 +153,7 @@ impl Engine {
         self.save_state();
         Ok(Outcome {
             by_screen: self.applied.borrow().clone(),
-            shared: (monitor_mode == MonitorMode::SameOnAll).then(|| picks[0].clone()),
+            shared: shared.then(|| picks[0].clone()),
         })
     }
 
@@ -212,18 +222,14 @@ fn target_screens(builder: &WallpaperBuilder, mode: MonitorMode) -> Result<Vec<u
 fn scan(dirs: &[String]) -> Vec<Image> {
     let mut out = Vec::new();
     for dir in dirs {
-        let Ok(entries) = fs::read_dir(dir) else {
-            continue;
-        };
+        let Ok(entries) = fs::read_dir(dir) else { continue };
         for entry in entries.flatten() {
             let path = entry.path();
             let is_image = path
                 .extension()
                 .and_then(|e| e.to_str())
                 .is_some_and(|e| EXTENSIONS.iter().any(|x| x.eq_ignore_ascii_case(e)));
-            let Some(path_str) = path.to_str() else {
-                continue;
-            };
+            let Some(path_str) = path.to_str() else { continue };
             let Ok(meta) = entry.metadata() else { continue };
             if !is_image || !meta.is_file() {
                 continue;

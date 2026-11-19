@@ -1,4 +1,8 @@
-use std::{rc::Rc, time::Duration};
+use std::{
+    rc::Rc,
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
 use slint::{ComponentHandle, Timer, TimerMode, Weak};
 
@@ -7,7 +11,9 @@ use crate::{
         schedule::{fmt_duration, Trigger},
         service::{Service, Start},
     },
+    library::Library,
     providers_tab::refresh_status,
+    wallpapers_tab::refresh_gallery,
     saver::Saver,
     AppTray, MainWindow, ProvidersState,
 };
@@ -15,6 +21,8 @@ use crate::{
 /// Keep this alive for as long as the app runs; it owns the schedule timer.
 pub struct Background {
     _timer: Timer,
+    /// The library the downloads are recorded in, for the Wallpapers tab.
+    pub library: Arc<Mutex<Library>>,
 }
 
 /// Starts the provider service: checks whatever is due right away and then
@@ -59,7 +67,7 @@ pub fn setup(window: &MainWindow, tray: &AppTray, saver: &Rc<Saver>) -> Option<B
     run(&weak, &service, saver, Trigger::Scheduled);
     refresh(&weak, &service, saver);
 
-    Some(Background { _timer: timer })
+    Some(Background { _timer: timer, library: service.library() })
 }
 
 fn refresh(weak: &Weak<MainWindow>, service: &Service, saver: &Saver) {
@@ -85,6 +93,7 @@ fn run(weak: &Weak<MainWindow>, service: &Service, saver: &Saver, trigger: Trigg
                 state.set_busy(false);
                 state.set_run_status(lines.join("\n").into());
                 refresh_status(&window, &runs.lock().unwrap(), &done_cfg);
+                refresh_gallery(); // a run may have added pictures
             }
         });
     });

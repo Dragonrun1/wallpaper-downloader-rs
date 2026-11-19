@@ -18,7 +18,7 @@ pub fn setup(
     saver: &Rc<Saver>,
     screens: &Rc<Screens>,
     initial: &ChangerConfig,
-) {
+) -> Rc<Engine> {
     let engine = Rc::new(Engine::new(State::load()));
     window.set_changer_per_screen_supported(engine.per_screen_supported());
 
@@ -30,6 +30,7 @@ pub fn setup(
     if initial.restore_on_start {
         schedule_restore(&engine, screens);
     }
+    engine
 }
 
 /// UI state -> config struct.

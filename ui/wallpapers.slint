@@ -1,0 +1,275 @@
+import { Button, CheckBox, ComboBox, HorizontalBox, LineEdit, Palette, ScrollView, VerticalBox } from "std-widgets.slint";
+
+export struct GalleryItem {
+    key: string,
+    thumb: image,
+    has-thumb: bool,
+    title: string,
+    source: string,
+    size: string,
+    author: string,
+    tags: string,
+    favorite: bool,
+    tracked: bool,          // false: the app has no record of it, so no favorite
+    has-page: bool,
+    has-author-link: bool,
+}
+
+// Everything the Wallpapers tab shows or does. The host fills the items and
+// handles the callbacks; item indexes are positions in `items` as shown.
+export global WallpapersState {
+    in property <[GalleryItem]> items;
+    in property <[string]> source-options;
+    in-out property <int> source-index: 0;
+    in-out property <string> search;
+    in-out property <bool> favorites-only: false;
+    in-out property <int> selected: -1;
+    in property <string> summary;
+    in property <string> status;
+
+    callback filters-changed();
+    callback refresh();
+    callback select(int);
+    callback toggle-favorite(int);
+    callback set-wallpaper(int, bool);    // index, primary screen only?
+    callback delete-item(int);
+    callback open-page(int);
+    callback open-author(int);
+    callback open-folder();
+}
+
+component Hint inherits Text {
+    font-size: 11px;
+    opacity: 0.7;
+    wrap: word-wrap;
+}
+
+component Card inherits Rectangle {
+    in property <GalleryItem> item;
+    in property <bool> selected;
+    callback clicked();
+    callback favorite();
+
+    width: 200px;
+    height: 164px;
+    background: root.selected ? Palette.accent-background.with-alpha(0.25) : Palette.foreground.with-alpha(0.06);
+    border-width: root.selected ? 2px : 1px;
+    border-color: root.selected ? Palette.accent-background : Palette.border;
+    border-radius: 6px;
+    clip: true;
+
+    TouchArea {
+        clicked => { root.clicked(); }
+    }
+
+    VerticalLayout {
+        padding: 4px;
+        spacing: 2px;
+
+        Rectangle {
+            height: 120px;
+            if root.item.has-thumb : Image {
+                source: root.item.thumb;
+                image-fit: contain;
+            }
+            if !root.item.has-thumb : Text {
+                text: "…";
+                color: Palette.foreground;
+                opacity: 0.4;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+        }
+        Text {
+            text: root.item.title;
+            overflow: elide;
+            font-size: 12px;
+        }
+        Text {
+            text: root.item.size;
+            font-size: 10px;
+            opacity: 0.6;
+        }
+    }
+
+    if root.item.tracked : Rectangle {
+        x: root.width - self.width - 6px;
+        y: 6px;
+        width: 26px;
+        height: 26px;
+        border-radius: 13px;
+        background: Palette.background.with-alpha(0.7);
+        Text {
+            text: root.item.favorite ? "★" : "☆";
+            font-size: 16px;
+            color: root.item.favorite ? #f5b301 : Palette.foreground;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+        TouchArea {
+            clicked => { root.favorite(); }
+        }
+    }
+}
+
+component DetailsPanel inherits VerticalLayout {
+    in property <GalleryItem> item;
+    in property <int> index;
+    property <bool> confirming: false;
+
+    changed index => { root.confirming = false; }
+
+    spacing: 6px;
+    width: 280px;
+
+    Rectangle {
+        height: 160px;
+        if root.item.has-thumb : Image {
+            source: root.item.thumb;
+            image-fit: contain;
+        }
+    }
+    Text {
+        text: root.item.title;
+        font-size: 15px;
+        font-weight: 700;
+        wrap: word-wrap;
+    }
+    Hint {
+        text: root.item.source + (root.item.size != "" ? " · " + root.item.size : "");
+    }
+    if root.item.author != "" : HorizontalLayout {
+        spacing: 6px;
+        Text {
+            text: @tr("by ") + root.item.author;
+            vertical-alignment: center;
+            overflow: elide;
+            horizontal-stretch: 1;
+        }
+        if root.item.has-author-link : Button {
+            text: @tr("Profile");
+            clicked => { WallpapersState.open-author(root.index); }
+        }
+    }
+    if root.item.tags != "" : Hint {
+        text: root.item.tags;
+    }
+
+    Button {
+        text: @tr("Set on all screens");
+        primary: true;
+        clicked => { WallpapersState.set-wallpaper(root.index, false); }
+    }
+    Button {
+        text: @tr("Set on primary screen");
+        clicked => { WallpapersState.set-wallpaper(root.index, true); }
+    }
+    if root.item.tracked : Button {
+        text: root.item.favorite ? @tr("★ Remove from favorites") : @tr("☆ Add to favorites");
+        clicked => { WallpapersState.toggle-favorite(root.index); }
+    }
+    if root.item.has-page : Button {
+        text: @tr("Open its web page");
+        clicked => { WallpapersState.open-page(root.index); }
+    }
+
+    if !root.confirming : Button {
+        text: @tr("Delete…");
+        clicked => { root.confirming = true; }
+    }
+    if root.confirming : VerticalLayout {
+        spacing: 6px;
+        Hint {
+            text: root.item.tracked
+                ? @tr("Delete this file? It won't be downloaded again.")
+                : @tr("Delete this file?");
+        }
+        HorizontalLayout {
+            spacing: 6px;
+            Button {
+                text: @tr("Delete");
+                clicked => {
+                    root.confirming = false;
+                    WallpapersState.delete-item(root.index);
+                }
+            }
+            Button {
+                text: @tr("Cancel");
+                clicked => { root.confirming = false; }
+            }
+        }
+    }
+    Rectangle { }
+}
+
+export component WallpapersPage inherits Rectangle {
+    property <length> cell-w: 208px;
+    property <length> cell-h: 172px;
+    property <int> columns: max(1, floor(grid-area.width / root.cell-w));
+
+    VerticalBox {
+        HorizontalBox {
+            LineEdit {
+                placeholder-text: @tr("Search title, author or tag");
+                text <=> WallpapersState.search;
+                horizontal-stretch: 1;
+                edited(t) => { WallpapersState.filters-changed(); }
+            }
+            ComboBox {
+                model: WallpapersState.source-options;
+                current-index <=> WallpapersState.source-index;
+                selected(v) => { WallpapersState.filters-changed(); }
+            }
+            CheckBox {
+                text: @tr("Favorites");
+                checked <=> WallpapersState.favorites-only;
+                toggled => { WallpapersState.filters-changed(); }
+            }
+            Button {
+                text: @tr("Refresh");
+                clicked => { WallpapersState.refresh(); }
+            }
+            Button {
+                text: @tr("Open folder");
+                clicked => { WallpapersState.open-folder(); }
+            }
+        }
+
+        HorizontalLayout {
+            spacing: 8px;
+
+            grid-area := Rectangle {
+                horizontal-stretch: 1;
+
+                ScrollView {
+                    content-width: grid-area.width;
+                    content-height: max(grid-area.height, ceil(WallpapersState.items.length / root.columns) * root.cell-h);
+
+                    for item[i] in WallpapersState.items : Card {
+                        x: mod(i, root.columns) * root.cell-w;
+                        y: floor(i / root.columns) * root.cell-h;
+                        item: item;
+                        selected: i == WallpapersState.selected;
+                        clicked => { WallpapersState.select(i); }
+                        favorite => { WallpapersState.toggle-favorite(i); }
+                    }
+                }
+                if WallpapersState.items.length == 0 : Text {
+                    text: @tr("No wallpapers to show yet.");
+                    opacity: 0.6;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+
+            if WallpapersState.selected >= 0 && WallpapersState.selected < WallpapersState.items.length : DetailsPanel {
+                item: WallpapersState.items[WallpapersState.selected];
+                index: WallpapersState.selected;
+            }
+        }
+
+        Hint {
+            text: WallpapersState.summary + (WallpapersState.status != "" ? "  ·  " + WallpapersState.status : "");
+        }
+    }
+}

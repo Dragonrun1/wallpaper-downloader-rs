@@ -88,6 +88,11 @@ impl Service {
         })
     }
 
+    /// The library, shared with background downloads and the Wallpapers tab.
+    pub fn library(&self) -> Arc<Mutex<Library>> {
+        self.library.clone()
+    }
+
     /// Shared with background tasks so the UI can describe each provider's status.
     pub fn runs(&self) -> Arc<Mutex<Runs>> {
         self.runs.clone()

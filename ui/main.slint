@@ -1,28 +1,42 @@
 import { ChangerPage, ScreenInfo } from "changer.slint";
 import { ProvidersPage } from "providers.slint";
-import { TabWidget } from "std-widgets.slint";
+import { TabWidget, Palette } from "std-widgets.slint";
+import { WallpapersPage } from "wallpapers.slint";
 export { ProvidersState, ProviderCard, TargetSize } from "providers.slint";
+export { GalleryItem, WallpapersState } from "wallpapers.slint";
 export { ScreenInfo } from "changer.slint";
 
-component SettingsPage inherits Rectangle { Text { text: "Settings"; } }
-component DownloadsPage inherits Rectangle { Text { text: "Downloads"; } }
-component WallpapersPage inherits Rectangle { Text { text: "Wallpapers"; } }
-component AboutPage inherits Rectangle { Text { text: "About"; } }
-component HelpPage inherits Rectangle { Text { text: "Help"; } }
+component SettingsPage inherits Rectangle {
+    Text {
+        text: "Settings";
+    }
+}
+
+component DownloadsPage inherits Rectangle {
+    Text {
+        text: "Downloads";
+    }
+}
+
+component AboutPage inherits Rectangle {
+    Text {
+        text: "About";
+    }
+}
+
+component HelpPage inherits Rectangle {
+    Text {
+        text: "Help";
+    }
+}
 
 export component MainWindow inherits Window {
-    title: "Wallpaper Manager";
+    title: "Wallpaper Download Manager";
     icon: @image-url("./images/wallpaper_icon_128.png");
     min-height: 480px;
     min-width: 640px;
-    preferred-width: 800px;
     preferred-height: 600px;
-
-    in-out property <int> current-tab: 0;
-
-    callback tab-changed();
-
-    changed current-tab => { root.tab-changed(); }
+    preferred-width: 800px;
 
     // Changer settings (mirrored from/to the Changer tab)
     in property <[ScreenInfo]> changer-screens;
@@ -39,6 +53,7 @@ export component MainWindow inherits Window {
     in-out property <int> changer-interval: 30;
     in-out property <int> changer-monitor-mode: 1;
     in-out property <int> changer-order: 0;
+    in-out property <int> current-tab: 0;
 
     callback changer-add-directory();
     callback changer-browse-directory(int);
@@ -46,14 +61,28 @@ export component MainWindow inherits Window {
     callback changer-refresh-screens();
     callback changer-remove-directory(int);
     callback changer-settings-changed();
+    callback tab-changed();
+
+    changed current-tab => { root.tab-changed(); }
 
     TabWidget {
         current-index <=> root.current-tab;
 
-        Tab { title: @tr("Providers"); ProvidersPage { } }
-        Tab { title: @tr("Settings"); SettingsPage { } }
+        Tab {
+            title: @tr("Providers");
+
+            ProvidersPage { }
+        }
+
+        Tab {
+            title: @tr("Settings");
+
+            SettingsPage { }
+        }
+
         Tab {
             title: @tr("Changer");
+
             ChangerPage {
                 per-screen-supported: root.changer-per-screen-supported;
                 screens-height: root.changer-screens-height;
@@ -75,13 +104,32 @@ export component MainWindow inherits Window {
                 monitor-mode <=> root.changer-monitor-mode;
                 order-index <=> root.changer-order;
                 restore-on-start <=> root.changer-restore-on-start;
-
             }
         }
-        Tab { title: @tr("Downloads"); DownloadsPage { } }
-        Tab { title: @tr("Wallpapers"); WallpapersPage { } }
-        Tab { title: @tr("About"); AboutPage { } }
-        Tab { title: @tr("Help"); HelpPage { } }
+
+        Tab {
+            title: @tr("Downloads");
+
+            DownloadsPage { }
+        }
+
+        Tab {
+            title: @tr("Wallpapers");
+
+            WallpapersPage { }
+        }
+
+        Tab {
+            title: @tr("About");
+
+            AboutPage { }
+        }
+
+        Tab {
+            title: @tr("Help");
+
+            HelpPage { }
+        }
     }
 }
 
@@ -92,7 +140,7 @@ export component AppTray inherits SystemTrayIcon {
         : root.icon-size <= 32 ? @image-url("./images/wallpaper_icon_32.png")
         : root.icon-size <= 64 ? @image-url("./images/wallpaper_icon_64.png")
         : @image-url("./images/wallpaper_icon_128.png");
-    tooltip: "Wallpaper Manager";
+    tooltip: "Wallpaper Download Manager";
 
     callback change-now();
     callback download-now();
@@ -103,11 +151,28 @@ export component AppTray inherits SystemTrayIcon {
     clicked => { root.tray-clicked(); }
 
     Menu {
-        MenuItem { title: @tr("Change Wallpaper Now"); activated => { root.change-now(); } }
-        MenuItem { title: @tr("Download Wallpapers Now"); activated => { root.download-now(); } }
-        MenuItem { title: @tr("Open"); activated => { root.open-tab(-1); } }
-        MenuItem { title: @tr("Settings…"); activated => { root.open-tab(1); } }
+        MenuItem {
+            title: @tr("Change Wallpaper Now");
+            activated => { root.change-now(); }
+        }
+
+        MenuItem {
+            title: @tr("Download Wallpapers Now");
+            activated => { root.download-now(); }
+        }
+
+        MenuItem {
+            title: @tr("Settings…");
+            icon: @image-url("images/square-settings.svg");
+            activated => { root.open-tab(-1); }
+        }
+
         MenuSeparator { }
-        MenuItem { title: @tr("Quit"); activated => { root.quit(); } }
+
+        MenuItem {
+            title: @tr("Quit");
+            icon: @image-url("images/square-power-off.svg");
+            activated => { root.quit(); }
+        }
     }
 }
