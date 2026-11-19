@@ -19,11 +19,24 @@ rfd = "0.18.0"
 scraper = "0.29.0"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
-slint = { version = "1.18.1", features = ["system-tray"] }
+slint = { version = "1.19.0", features = ["image-default-formats", "renderer-winit-skia", "system-tray"] }
 sys-locale = "0.3.2"
 tokio = { version = "1.54.1", features = ["fs", "macros", "rt-multi-thread", "time"] }
 toml = "1.2.1"
 url = "2.5.8"
+open = "5.4.5"
+image = {
+    version = "0.25",
+    default-features = false,
+    features = [
+        "bmp",
+        "gif",
+        "ico",
+        "jpeg",
+        "png",
+        "webp",
+    ]
+}
 
 [build-dependencies]
 slint-build = "1.18.1"
@@ -31,6 +44,19 @@ slint-build = "1.18.1"
 [profile.release]
 codegen-units = 1
 lto = true
+
+[profile.dev.package.image]
+opt-level = 3
+[profile.dev.package.zune-jpeg]
+opt-level = 3
+[profile.dev.package.png]
+opt-level = 3
+[profile.dev.package.fdeflate]
+opt-level = 3
+[profile.dev.package.miniz_oxide]
+opt-level = 3
+[profile.dev.package.image-webp]
+opt-level = 3
 
 [dev-dependencies]
 http = "1.5.0"
