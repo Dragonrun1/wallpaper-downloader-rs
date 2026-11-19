@@ -1,4 +1,5 @@
 import { Button, CheckBox, ComboBox, GroupBox, HorizontalBox, LineEdit, ScrollView, SpinBox, Switch, VerticalBox } from "std-widgets.slint";
+import { Theme } from "./theme.slint";
 
 export struct TargetSize {
     width: int,
@@ -34,33 +35,33 @@ export struct ProviderCard {
 // Everything the Providers tab shows or does. The host fills the models and
 // handles the callbacks.
 export global ProvidersState {
+    in property <[ProviderCard]> providers;          // already in alphabetical order
+    in property <[string]> forbidden-tags;
+    in property <[string]> keywords;
+    in property <[TargetSize]> targets;
+    in property <bool> busy;
+    in property <string> run-status;
     in-out property <bool> schedule-enabled: true;
+    in-out property <int> max-size-mb: 256;
+    in-out property <int> resolution-policy: 1;      // 0 = any, 1 = at least, 2 = exact
     in-out property <int> schedule-every: 6;
     in-out property <int> schedule-unit: 1;          // 0 = minutes, 1 = hours, 2 = days
-    in property <[string]> keywords;
-    in property <[string]> forbidden-tags;
-    in-out property <int> resolution-policy: 1;      // 0 = any, 1 = at least, 2 = exact
-    in property <[TargetSize]> targets;
     in-out property <string> download-dir;
-    in-out property <int> max-size-mb: 256;
-    in property <[ProviderCard]> providers;          // already in alphabetical order
-    in property <string> run-status;
-    in property <bool> busy;
 
-    callback changed();
-    callback download-now();
-    callback add-keyword(string);
-    callback remove-keyword(int);
     callback add-forbidden(string);
-    callback remove-forbidden(int);
+    callback add-keyword(string);
     callback add-target();
-    callback edit-target(int, int, int);
-    callback remove-target(int);
-    callback reset-targets();
     callback browse-download-dir();
     callback card-bool(int, string, bool);
     callback card-int(int, string, int);
     callback card-text(int, string, string);
+    callback changed();
+    callback download-now();
+    callback edit-target(int, int, int);
+    callback remove-forbidden(int);
+    callback remove-keyword(int);
+    callback remove-target(int);
+    callback reset-targets();
 }
 
 component Hint inherits Text {
@@ -88,7 +89,7 @@ component StringListEditor inherits VerticalLayout {
         }
         Button {
             text: @tr("Remove");
-            icon: @image-url("images/remove.png");
+            icon: Theme.is-dark-theme ? @image-url("images/square-x.svg") : @image-url("images/light/square-x.svg");
             clicked => { root.removed(i); }
         }
     }
@@ -105,7 +106,11 @@ component StringListEditor inherits VerticalLayout {
         Button {
             text: @tr("Add");
             enabled: input.text != "";
-            icon: @image-url("images/add-button.png");
+            icon: input.text == ""
+                ? @image-url("images/dimmed/square-plus.svg")
+                : Theme.is-dark-theme
+                    ? @image-url("images/square-plus.svg")
+                    : @image-url("images/light/square-plus.svg");
             clicked => {
                 root.added(input.text);
                 input.text = "";
@@ -261,6 +266,7 @@ export component ProvidersPage inherits Rectangle {
                         alignment: start;
                         Button {
                             text: ProvidersState.busy ? @tr("Checking…") : @tr("Download now");
+                            icon: Theme.is-dark-theme ? @image-url("images/download.svg") : @image-url("images/light/download.svg");
                             enabled: !ProvidersState.busy;
                             clicked => { ProvidersState.download-now(); }
                         }
@@ -304,7 +310,7 @@ export component ProvidersPage inherits Rectangle {
             }
 
             GroupBox {
-                title: @tr("Image size");
+                title: @tr("Image Sizes");
 
                 VerticalBox {
                     HorizontalBox {
@@ -338,7 +344,7 @@ export component ProvidersPage inherits Rectangle {
                             }
                             Button {
                                 text: @tr("Remove");
-                                icon: @image-url("images/remove.png");
+                                icon: Theme.is-dark-theme ? @image-url("images/monitor-x.svg") : @image-url("images/light/monitor-x.svg");
                                 clicked => { ProvidersState.remove-target(i); }
                             }
                         }
@@ -346,12 +352,12 @@ export component ProvidersPage inherits Rectangle {
                             alignment: start;
                             Button {
                                 text: @tr("Add size");
-                                icon: @image-url("images/add-button.png");
+                                icon: Theme.is-dark-theme ? @image-url("images/monitor-cog.svg") : @image-url("images/light/monitor-cog.svg");
                                 clicked => { ProvidersState.add-target(); }
                             }
                             Button {
-                                text: @tr("Reset from screens");
-                                icon: @image-url("images/reset_from_monitors.png");
+                                text: @tr("Rescan monitors");
+                                icon: Theme.is-dark-theme ? @image-url("images/monitor-check.svg") : @image-url("images/light/monitor-check.svg");
                                 clicked => { ProvidersState.reset-targets(); }
                             }
                         }
@@ -375,6 +381,7 @@ export component ProvidersPage inherits Rectangle {
                         }
                         Button {
                             text: @tr("Browse…");
+                            icon: Theme.is-dark-theme ? @image-url("images/folder-search-2.svg") : @image-url("images/light/folder-search-2.svg");
                             clicked => { ProvidersState.browse-download-dir(); }
                         }
                     }
